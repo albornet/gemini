@@ -8,15 +8,17 @@ import transformers
 from transformers import BitsAndBytesConfig
 from datasets import Dataset
 from functools import partial
-from triton.testing import do_bench
+# from triton.testing import do_bench
+# TODO: TEST ALL MODELS THAT WORK FINE, MONITORING COMPUTATION RUNTIME, GPU MEMORY USAGE, AND PERFORMANCE ON 10 FULL RUNS!
+# TODO: TEST IF ANY OF THE MODELS THAT WORK FINE CAN BE RUN ON A 24GB-GPU USING THE 70B VERSION OF LLAMA
 
 
 DATASET_PATH = "data/dataset.csv"
-# MODEL_ID = "meta-llama/Meta-Llama-3.1-8B-Instruct"
-# MODEL_ID = "epfl-llm/meditron-7b"  # <- not french + not instruct!
-# MODEL_ID = "hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4"
-MODEL_ID = "neuralmagic/Meta-Llama-3.1-8B-Instruct-quantized.w4a16"
-# MODEL_ID = "unsloth/Meta-Llama-3.1-8B-Instruct-bnb-4bit"
+# MODEL_ID = "meta-llama/Meta-Llama-3.1-8B-Instruct"  # "full" version (but can be quantized at runtime!), both working fine
+# MODEL_ID = "epfl-llm/meditron-7b"  # produces bad results because it doesn't speak french
+# MODEL_ID = "hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4"  # error in llama rotary embedding forward function, maybe wrong version of transformers?
+# MODEL_ID = "neuralmagic/Meta-Llama-3.1-8B-Instruct-quantized.w4a16"  # works fine
+MODEL_ID = "unsloth/Meta-Llama-3.1-8B-Instruct-bnb-4bit"  # works fine
 RUNTIME_QUANTIZATION = False
 TORCH_DTYPE = torch.float16 if "hugging-quants" in MODEL_ID else torch.bfloat16
 
@@ -52,11 +54,26 @@ def main():
     dataset.to_csv(output_path, index=False)
 
 
-def process_sample(sample, pipeline):
-    """ Take in a sample, format input text, and extract reasoning
+def process_sample(
+    sample: dict[str, str],
+    pipeline: transformers.pipeline,
+) -> dict[str, str]:
+    """ Process a sample by formatting the input text, prompting an LLM, and
+        extracting reasoning and predictions.
+
+    Args:
+        sample (dict[str, str]): sample including input text
+        pipeline (transformers.pipeline): pipeline for language model inference
+
+    Returns:
+        dict[str, str]: updated sample with extracted reasoning and predictions
     """
     messages = build_prompt(sample["input_text"])
-    llm_outputs = pipeline(messages, max_new_tokens=1024)
+    llm_outputs = pipeline(
+        messages,
+        max_new_tokens=1024,
+        pad_token_id=pipeline.tokenizer.eos_token_id,  # would be set in any case
+    )
     output_text = llm_outputs[0]["generated_text"][-1]["content"]
     question_output = post_process_llm_output(output_text)
     
@@ -77,18 +94,18 @@ def build_prompt(input_text: str) -> list[dict[str, str]]:
     """
     system_prompt = """
 Tu es un neuro-chirurgien et ta tâche est d’identifier le score sur l’Echelle de Rankin Modifiée Rankin (mRS) du patient, selon la lettre de sortie rédigée par un autre médecin.
-L'Échelle de Rankin Modifiée (mRS) est utilisée pour mesurer le degré d'incapacité chez les patients ayant subi un accident vasculaire cérébral (AVC), comme suit:
-0: Aucun symptôme
-1: Aucune incapacité significative malgré des symptômes ; capable d'effectuer toutes les tâches et activités habituelles
-2: Légère incapacité ; incapable d'effectuer toutes les activités antérieures, mais capable de s'occuper de ses propres affaires sans assistance
-3: Incapacité modérée ; nécessitant une certaine aide, mais capable de marcher sans assistance
-4: Incapacité modérément sévère ; incapable de marcher sans assistance et incapable de s'occuper de ses besoins corporels sans assistance
-5: Incapacité sévère ; alité, incontinent et nécessitant des soins infirmiers constants et une attention continue
-6: Décédé
+L'Échelle de Rankin Modifiée (mRS) est utilisée pour mesurer le degré d'incapacité chez les patients ayant subi un accident vasculaire cérébral (AVC), comme suit :
+0 : Aucun symptôme
+1 : Aucune incapacité significative malgré des symptômes ; capable d'effectuer toutes les tâches et activités habituelles
+2 : Légère incapacité ; incapable d'effectuer toutes les activités antérieures, mais capable de s'occuper de ses propres affaires sans assistance
+3 : Incapacité modérée ; nécessitant une certaine aide, mais capable de marcher sans assistance
+4 : Incapacité modérément sévère ; incapable de marcher sans assistance et incapable de s'occuper de ses besoins corporels sans assistance
+5 : Incapacité sévère ; alité, incontinent et nécessitant des soins infirmiers constants et une attention continue
+6 : Décédé
     """
-    intro_text = "Voici la lettre du patient:"
-    output_specification = "Pour rédiger ta réponse, explique toutes les étapes de ton raisonnement, puis, à la toute fin de ta réponse, dans une nouvelle ligne, indique le mRS que tu prédis pour le patient en utilisant le format suivant: ```mRS: <nombre>```"
-    user_prompt = "%s\n%s\n%s" % (intro_text, input_text, output_specification)
+    intro_text = "Voici la lettre du patient :"
+    output_specification = "Pour rédiger ta réponse, explique toutes les étapes de ton raisonnement, puis, à la toute fin de ta réponse, dans une nouvelle ligne, indique le mRS que tu prédis pour le patient en utilisant le format suivant : ```mRS : <nombre>```"
+    user_prompt = "\n".join((intro_text, input_text, output_specification))
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt},

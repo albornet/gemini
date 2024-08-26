@@ -1,43 +1,66 @@
 import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "1"
-# import time
-# import re
-# import pandas as pd
+import re
+import numpy as np
 import torch
 import transformers
 from transformers import BitsAndBytesConfig
 from datasets import Dataset
 from functools import partial
-# from triton.testing import do_bench
-# TODO: TEST ALL MODELS THAT WORK FINE, MONITORING COMPUTATION RUNTIME, GPU MEMORY USAGE, AND PERFORMANCE ON 10 FULL RUNS!
+from utils import do_bench_custom, record_metrics
+from sklearn.metrics import confusion_matrix
 # TODO: TEST IF ANY OF THE MODELS THAT WORK FINE CAN BE RUN ON A 24GB-GPU USING THE 70B VERSION OF LLAMA
 
 
+DEBUG = False
 DATASET_PATH = "data/dataset.csv"
-# MODEL_ID = "meta-llama/Meta-Llama-3.1-8B-Instruct"  # "full" version (but can be quantized at runtime!), both working fine
-# MODEL_ID = "epfl-llm/meditron-7b"  # produces bad results because it doesn't speak french
-# MODEL_ID = "hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4"  # error in llama rotary embedding forward function, maybe wrong version of transformers?
-# MODEL_ID = "neuralmagic/Meta-Llama-3.1-8B-Instruct-quantized.w4a16"  # works fine
-MODEL_ID = "unsloth/Meta-Llama-3.1-8B-Instruct-bnb-4bit"  # works fine
-RUNTIME_QUANTIZATION = False
-TORCH_DTYPE = torch.float16 if "hugging-quants" in MODEL_ID else torch.bfloat16
+RUNS = [
+    {"model_id": "meta-llama/Meta-Llama-3.1-8B-Instruct", "quantize": True},  # quantized at runtime
+    {"model_id": "meta-llama/Meta-Llama-3.1-8B-Instruct", "quantize": False},  # "full" version
+    {"model_id": "neuralmagic/Meta-Llama-3.1-8B-Instruct-quantized.w4a16", "quantize": False},
+    {"model_id": "unsloth/Meta-Llama-3.1-8B-Instruct-bnb-4bit", "quantize": False},
+    # "epfl-llm/meditron-7b",  # produces bad results because it doesn't speak french
+    # "hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4",  # error in llama rotary embedding forward function, maybe wrong version of transformers?
+]
 
 
 def main():
-    """ Prompt a large language model with with medical questions
+    """ Run benchmarks on different generative large language models
+    """
+    print("Benchmarking started")
+    for run in RUNS:
+        print("\nBenchmarking %s\n" % run["model_id"])
+        benchmark_one_model(**run)
+        if DEBUG: import ipdb; ipdb.set_trace()
+    print("Models benchmarked!")
+
+
+def benchmark_one_model(
+    model_id: str,
+    quantize: bool=False,
+) -> dict:
+    """ Prompt a large language model with with medical questions and computes
+        metrics about computation time, GPU memory usage, and accuracy
+    
+    Args:
+        model_id (str): reference string to load model from huggingface
+        quantize (bool): if True, runtime quantization is used        
+    Returns:
+        dict: benchmark metrics including time and memory usage
     """
     # Initialize model arguments
-    model_kwargs = {"torch_dtype": TORCH_DTYPE}
-    if RUNTIME_QUANTIZATION:
+    torch_dtype = torch.float16 if "hugging-quants" in model_id else torch.bfloat16
+    model_kwargs = {"torch_dtype": torch_dtype}
+    if quantize:
         assert not any(
-            [s in MODEL_ID.lower() for s in ["-4bit", "-int4", "-quant"]]
+            [s in model_id.lower() for s in ["-4bit", "-int4", "-quant"]]
         ), "Model is pre-quantized, you should not use runtime quantization!"
         model_kwargs["quantization_config"] = BitsAndBytesConfig(load_in_4bit=True)
     
     # Build pipeline
     pipeline = transformers.pipeline(
-        "text-generation",
-        model=MODEL_ID,
+        task="text-generation",
+        model=model_id,
         model_kwargs=model_kwargs,
         device_map="auto",
     )
@@ -46,13 +69,47 @@ def main():
     dataset = Dataset.from_csv(DATASET_PATH)
     dataset = dataset.rename_columns({"Texte": "input_text", "mRS": "label"})
     process_fn = partial(process_sample, pipeline=pipeline)
-    dataset = dataset.map(process_fn, batched=False)
+    if DEBUG: dataset = Dataset.from_dict(dataset[:2])
     
-    # Write the input and results to a csv file
-    output_path = os.path.join("results", "%s.csv" % MODEL_ID)
+    # Measure computation time and GPU memory usage
+    bench_fn = partial(dataset.map, function=process_fn, batch_size=1)
+    times, memories, outputs = do_bench_custom(
+        benchmarked_fn=bench_fn,
+        n_repeats=2 if DEBUG else 10,
+        return_outputs=True,
+    )
+    
+    # Compute performance metrics
+    cm_fn = lambda d: confusion_matrix(d["prediction"], d["label"], labels=list(range(-1, 7)))
+    accuracy_fn = lambda d: np.mean(np.array(d["prediction"]) == np.array(d["label"]))
+    distance_fn = lambda d: np.mean(np.abs(np.array(d["prediction"]) - np.array(d["label"])))
+    cm = np.sum([cm_fn(o) for o in outputs], axis=0)
+    accuracies = torch.tensor([accuracy_fn(o) for o in outputs], dtype=torch.float32)
+    distances = torch.tensor([distance_fn(o) for o in outputs], dtype=torch.float32)
+    
+    # Combine all outputs and add them to the input dataset
+    for key in ["reasoning", "answer", "prediction"]:
+        for i, output in enumerate(outputs):
+            dataset = dataset.add_column(f"{key}_{i:03}", output[key])
+            
+    # Write raw results and metrics to csv files
+    model_name = "%s_quantized" if quantize else model_id
+    output_path = os.path.join("results", "%s_raw.csv" % model_name)
     os.makedirs(os.path.split(output_path)[0], exist_ok=True)
     dataset.to_csv(output_path, index=False)
-
+    
+    # Plot evaluation metrics to a png file
+    record_metrics(
+        output_path.replace("_raw.csv", "_metrics"),
+        confusion_matrix=cm,
+        metrics={
+            "Time per Sample [minute]": times / (60 * len(dataset)),
+            "Peak VRAM Usage [32-GB]": memories / 32,
+            "Accuracy []": accuracies,
+            "Distance [mRS unit]": distances,
+        },
+    )
+    
 
 def process_sample(
     sample: dict[str, str],
@@ -75,11 +132,9 @@ def process_sample(
         pad_token_id=pipeline.tokenizer.eos_token_id,  # would be set in any case
     )
     output_text = llm_outputs[0]["generated_text"][-1]["content"]
-    question_output = post_process_llm_output(output_text)
-    
-    sample["reasoning"] = question_output["reasoning"]
-    sample["prediction"] = question_output["answer"]
-    
+    question_output = extract_reasoning_and_prediction(output_text)
+    sample.update(question_output)
+        
     return sample
 
 
@@ -114,58 +169,28 @@ L'Échelle de Rankin Modifiée (mRS) est utilisée pour mesurer le degré d'inca
     return messages
 
 
-def post_process_llm_output(raw_output_text: str) -> dict[str, str]:
-    """ Extract reasoning and answer from a raw text large language model output
+def extract_reasoning_and_prediction(
+    llm_raw_output_text: str,
+) -> dict[str, str]:
+    """ Extract reasoning and answer from the raw output of an LLM
     
     Args:
-        raw_output_text (str): raw output from the large language model
+        raw_output_text (str): raw output from the LLM
 
     Returns:
-        dict[str, str]: structured output from the large language model
+        dict[str, str]: structured output from the LLM
     """
-    lines = raw_output_text.split("\n")    
+    # Extract reasoning and text answer from raw output 
+    lines = llm_raw_output_text.split("\n")    
     reasoning = "\n".join(lines[:-1])
     answer = lines[-1].strip()
     
-    return {"reasoning": reasoning, "answer": answer}
-
-
-# def extract_label(model_output):
-#     pattern = re.compile(r"(\d){1}")
-#     return 
-
-
-# def main_with_resource_monitoring():
-#     # Clear cache and synchronize the GPU before forward pass
-#     torch.cuda.empty_cache()
-#     torch.cuda.synchronize()
+    # Extract prediction from text answer
+    pattern = re.compile(r'(?:mrs[:\s]*|\b)([0-6])\b', re.IGNORECASE)
+    match = pattern.search(answer)
+    prediction = int(match.group(1)) if match else -1  # -1 being "bad answer"
     
-#     # Check GPU memory usage before forward pass
-#     before_forward_memory = torch.cuda.memory_allocated()
-    
-#     # Perform function pass
-#     main()
-    
-#     # Synchronize GPU after forward pass
-#     torch.cuda.synchronize()
-
-#     # Check GPU memory usage after forward pass
-#     after_forward_memory = torch.cuda.memory_allocated()
-
-#     # Peak memory usage during forward pass
-#     peak_memory = torch.cuda.max_memory_allocated()
-    
-#     # Print GPU memory usage metrics
-#     print(f"GPU memory usage before forward pass: {before_forward_memory / 1024**2:.2f} MB")
-#     print(f"GPU memory usage after forward pass: {after_forward_memory / 1024**2:.2f} MB")
-#     print(f"Peak GPU memory usage during forward pass: {peak_memory / 1024**2:.2f} MB")
-    
-#     # Check time computation
-#     time.sleep(5)
-#     milliseconds = do_bench(main)
-    
-#     # Print time computation metric
-#     print(f"Time in milliseconds to run forward pass: {milliseconds} ms")
+    return {"reasoning": reasoning, "answer": answer, "prediction": prediction}
 
 
 if __name__ == "__main__":

@@ -1,4 +1,7 @@
-datasets==2.20.0
 torch==2.3.1
 transformers==4.44.0
-triton==2.3.1
+datasets==2.20.0
+numpy==2.1.0
+pandas==2.2.2
+matplotlib==3.9.2
+scikit_learn==1.5.1

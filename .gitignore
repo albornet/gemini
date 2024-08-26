@@ -164,3 +164,4 @@ cython_debug/
 # Custom
 *.csv
 results/*
+logs/*

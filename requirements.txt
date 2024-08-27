@@ -1,7 +1,8 @@
-transformers==4.44.0
+transformers==4.43.4
 datasets==2.20.0
 bitsandbytes==0.43.3
 accelerate==0.33.0
+optimum==1.4.1
 pandas==2.2.2
 matplotlib==3.9.2
 scikit_learn==1.5.1

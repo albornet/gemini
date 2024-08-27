@@ -1,24 +1,32 @@
 import os
-# os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 import re
+import gc
+import time
 import numpy as np
 import torch
 import transformers
 from transformers import BitsAndBytesConfig
 from datasets import Dataset
 from functools import partial
-from utils import do_bench_custom, record_metrics
+from utils import do_bench_custom, record_metrics, print_gpu_info
 from sklearn.metrics import confusion_matrix
+
 # TODO: TEST IF ANY OF THE MODELS THAT WORK FINE CAN BE RUN ON A 24GB-GPU USING THE 70B VERSION OF LLAMA
 
-
-DEBUG = False
-DATASET_PATH = "data/dataset.csv"
+DEBUG = True
+RESULT_DIR = "results"
+DATASET_PATH = "./data/dataset.csv"
 RUNS = [
+    # Models that work:
     {"model_id": "meta-llama/Meta-Llama-3.1-8B-Instruct", "quantize": True},  # quantized at runtime
     {"model_id": "meta-llama/Meta-Llama-3.1-8B-Instruct", "quantize": False},  # "full" version
     {"model_id": "neuralmagic/Meta-Llama-3.1-8B-Instruct-quantized.w4a16", "quantize": False},
     {"model_id": "unsloth/Meta-Llama-3.1-8B-Instruct-bnb-4bit", "quantize": False},
+    
+    # # Models not tested yet:
+    # {"model_id": "meta-llama/Meta-Llama-3.1-70B-Instruct", "quantize": True},  # quantized at runtime
+    
+    # Models that did not work:
     # "epfl-llm/meditron-7b",  # produces bad results because it doesn't speak french
     # "hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4",  # error in llama rotary embedding forward function, maybe wrong version of transformers?
 ]
@@ -27,11 +35,11 @@ RUNS = [
 def main():
     """ Run benchmarks on different generative large language models
     """
-    print("Benchmarking started")
+    print("Benchmarking started\n")
     for run in RUNS:
-        print("\nBenchmarking %s\n" % run["model_id"])
+        print("Benchmarking %s\n" % run["model_id"])
+        print_gpu_info()
         benchmark_one_model(**run)
-        if DEBUG: import ipdb; ipdb.set_trace()
     print("Models benchmarked!")
 
 
@@ -40,7 +48,7 @@ def benchmark_one_model(
     quantize: bool=False,
 ) -> dict:
     """ Prompt a large language model with with medical questions and computes
-        metrics about computation time, GPU memory usage, and accuracy
+        metrics about computation time, GPU memory usage, and error rate
     
     Args:
         model_id (str): reference string to load model from huggingface
@@ -68,7 +76,8 @@ def benchmark_one_model(
     # Prompt the model with all samples of the dataset
     dataset = Dataset.from_csv(DATASET_PATH)
     dataset = dataset.rename_columns({"Texte": "input_text", "mRS": "label"})
-    process_fn = partial(process_sample, pipeline=pipeline)
+    process_fn = lambda sample: process_sample(sample, pipeline)
+    # process_fn = lambda sample: ray.get(process_sample.remote(sample, pipeline))
     if DEBUG: dataset = Dataset.from_dict(dataset[:2])
     
     # Measure computation time and GPU memory usage
@@ -81,10 +90,10 @@ def benchmark_one_model(
     
     # Compute performance metrics
     cm_fn = lambda d: confusion_matrix(d["prediction"], d["label"], labels=list(range(-1, 7)))
-    accuracy_fn = lambda d: np.mean(np.array(d["prediction"]) == np.array(d["label"]))
+    error_fn = lambda d: np.mean(np.array(d["prediction"]) != np.array(d["label"]))
     distance_fn = lambda d: np.mean(np.abs(np.array(d["prediction"]) - np.array(d["label"])))
     cm = np.sum([cm_fn(o) for o in outputs], axis=0)
-    accuracies = torch.tensor([accuracy_fn(o) for o in outputs], dtype=torch.float32)
+    errors = torch.tensor([error_fn(o) for o in outputs], dtype=torch.float32)
     distances = torch.tensor([distance_fn(o) for o in outputs], dtype=torch.float32)
     
     # Combine all outputs and add them to the input dataset
@@ -93,23 +102,33 @@ def benchmark_one_model(
             dataset = dataset.add_column(f"{key}_{i:03}", output[key])
             
     # Write raw results and metrics to csv files
-    model_name = "%s_quantized" if quantize else model_id
-    output_path = os.path.join("results", "%s_raw.csv" % model_name)
+    model_name = "%s_quantized" % model_id if quantize else model_id
+    output_path = os.path.join(RESULT_DIR, "%s_raw.csv" % model_name)
     os.makedirs(os.path.split(output_path)[0], exist_ok=True)
     dataset.to_csv(output_path, index=False)
     
     # Plot evaluation metrics to a png file
-    record_metrics(
-        output_path.replace("_raw.csv", "_metrics"),
-        confusion_matrix=cm,
-        metrics={
-            "Time per Sample [minute]": times / (60 * len(dataset)),
-            "Peak VRAM Usage [32-GB]": memories / 32,
-            "Accuracy []": accuracies,
-            "Distance [mRS unit]": distances,
-        },
-    )
+    # metrics = {
+    #     "Time per Sample [minute]": times / (60 * len(dataset)),
+    #     "Peak VRAM Usage [32-GB]": memories / 32,
+    #     "Error []": errors,
+    #     "Distance [mRS unit]": distances,
+    # }
+    metrics = [
+        {"name": "Time per Sample", "unit": "s", "max_y": 60.0, "values": times / len(dataset)},
+        {"name": "Peak VRAM Usage", "unit": "GB", "max_y": 30.0, "values": memories},
+        {"name": "Error Rate", "unit": "%", "max_y": 1.0, "values": errors},
+        {"name": "Distance", "unit": "mRS", "max_y": 1.0, "values": distances},
+    ]
+    result_path = output_path.replace("_raw.csv", "_metrics")
+    record_metrics(result_path, confusion_matrix=cm, metrics=metrics)
     
+    # Delete pipeline and free GPU memory cache
+    del pipeline
+    gc.collect()
+    torch.cuda.empty_cache()
+    time.sleep(5)
+
 
 def process_sample(
     sample: dict[str, str],
@@ -126,11 +145,12 @@ def process_sample(
         dict[str, str]: updated sample with extracted reasoning and predictions
     """
     messages = build_prompt(sample["input_text"])
-    llm_outputs = pipeline(
-        messages,
-        max_new_tokens=1024,
-        pad_token_id=pipeline.tokenizer.eos_token_id,  # would be set in any case
-    )
+    with torch.no_grad():  # useful?
+        llm_outputs = pipeline(
+            messages,
+            max_new_tokens=1024,
+            pad_token_id=pipeline.tokenizer.eos_token_id,  # would be set in any case
+        )
     output_text = llm_outputs[0]["generated_text"][-1]["content"]
     question_output = extract_reasoning_and_prediction(output_text)
     sample.update(question_output)

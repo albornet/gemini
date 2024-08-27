@@ -1,3 +1,6 @@
+import subprocess
+import gc
+import time
 import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
@@ -84,11 +87,6 @@ def record_metrics(
     metrics_df = pd.DataFrame(metrics)
     metrics_df.to_csv(output_path + ".csv", index=False)
     
-    # Calculate means and standard errors
-    means = {k: v.mean().item() for k, v in metrics.items()}
-    norm = len(metrics[list(metrics.keys())[0]]) ** 0.5
-    sems = {k: v.std(unbiased=True).item() / norm for k, v in metrics.items()}
-    
     # Determine the number of subplots
     num_metrics = len(metrics)
     _, ax = plt.subplots(
@@ -105,21 +103,35 @@ def record_metrics(
     ax[0].set_yticks(range(len(labels)))
     ax[0].set_xticklabels(labels)
     ax[0].set_yticklabels(labels)
-    ax[0].set_xlabel("Predicted mRS")
-    ax[0].set_ylabel("True mRS")
+    ax[0].set_xlabel("True mRS")
+    ax[0].set_ylabel("Predicted mRS")
     ax[0].set_title("Confusion Matrix")
     
     # Plot each metric in a separate subplot
     colors = ["tab:blue", "tab:orange", "tab:green", "tab:red", "tab:purple"] * 10
-    for i, (metric_name, mean) in enumerate(means.items()):
-        metric_title, metric_units = metric_name.split("[")
-        ax[i + 1].bar(0, mean, yerr=sems[metric_name], capsize=5, alpha=0.75, color=colors[i])
+    # for i, (metric_name, mean, sem) in enumerate(zip(names, max_ys, means, sems)):
+    for i, metric in enumerate(metrics):
+        mean = metric["values"].mean().item()
+        sem = metric["values"].std(unbiased=True).item() / len(metric["values"])
+        ax[i + 1].bar(0, mean, yerr=sem, capsize=5, alpha=0.75, color=colors[i])
         ax[i + 1].set_xticks([])
-        ax[i + 1].set_ylim([0.0, 1.0])
-        ax[i + 1].set_ylabel(metric_units.strip("]"))
-        ax[i + 1].set_title(metric_title.strip())
+        ax[i + 1].set_ylim([0.0, metric["max_y"]])
+        ax[i + 1].set_ylabel("[%s]" % metric["unit"])
+        ax[i + 1].set_title(metric["name"])
     
     # Adjust layout and save plot
     plt.tight_layout()
     plt.savefig(output_path + ".png", dpi=300)
     plt.close()
+
+
+def print_gpu_info():
+    """ Print information about available GPU(s)
+    """
+    try:
+        result = subprocess.run(["nvidia-smi"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        print("GPU Information:\n")
+        print(result.stdout)
+    except FileNotFoundError:
+        print("nvidia-smi not found. Ensure NVIDIA drivers are installed and accessible.")
+        

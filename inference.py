@@ -18,8 +18,8 @@ RESULT_DIR = "results"
 DATASET_PATH = "./data/dataset.csv"
 RUNS = [
     # Models that work:
-    {"model_id": "meta-llama/Meta-Llama-3.1-8B-Instruct", "quantize": True},  # quantized at runtime
-    {"model_id": "meta-llama/Meta-Llama-3.1-8B-Instruct", "quantize": False},  # "full" version
+    # {"model_id": "meta-llama/Meta-Llama-3.1-8B-Instruct", "quantize": True},  # quantized at runtime
+    # {"model_id": "meta-llama/Meta-Llama-3.1-8B-Instruct", "quantize": False},  # "full" version
     {"model_id": "neuralmagic/Meta-Llama-3.1-8B-Instruct-quantized.w4a16", "quantize": False},
     {"model_id": "unsloth/Meta-Llama-3.1-8B-Instruct-bnb-4bit", "quantize": False},
     

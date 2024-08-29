@@ -19,6 +19,18 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
+# Prompt the user to clean docker cache (my computer disk is small...)
+read -p "Do you want to clean up all unused Docker resources? [y/N]: " -r
+echo  # new line
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+    sudo docker image prune -f
+    sudo docker container prune -f
+    sudo docker builder prune -f
+    sudo docker system prune -f
+else
+    echo "Skipping docker cache cleaning"
+fi
+
 # Convert the Docker tar file to a Singularity (Apptainer) SIF image
 sudo apptainer build $IMAGE_NAME-image.sif docker-archive://$IMAGE_NAME-image.tar
 if [ $? -ne 0 ]; then
@@ -37,14 +49,5 @@ fi
 sudo docker rmi $IMAGE_NAME-image:latest
 rm $IMAGE_NAME-image.tar
 rm $IMAGE_NAME-image.sif
-
-# Prompt the user before running system prune
-read -p "Do you want to run 'docker system prune' to clean up all unused Docker resources? [y/N]: " -r
-echo  # new line
-if [[ $REPLY =~ ^[Yy]$ ]]; then
-    sudo docker system prune -f  # If the user says 'y' or 'Y', perform the system prune
-else
-    echo "Skipping Docker system prune."
-fi
 
 echo "Script completed successfully, and Docker caches have been cleaned up."

@@ -3,7 +3,6 @@ datasets==2.20.0
 bitsandbytes==0.43.3
 accelerate==0.33.0
 optimum==1.21.4
-# auto_gptq==0.7.1
 pandas==2.2.2
 matplotlib==3.9.2
 scikit_learn==1.5.1

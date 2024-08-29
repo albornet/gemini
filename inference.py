@@ -11,14 +11,14 @@ from functools import partial
 from utils import do_bench_custom, record_metrics, print_gpu_info
 from sklearn.metrics import confusion_matrix
 
-# TODO: TEST IF ANY OF THE MODELS THAT WORK FINE CAN BE RUN ON A 24GB-GPU USING THE 70B VERSION OF LLAMA
+# TODO: TEST IF ANY OF THE MODELS THAT WORK FINE CAN BE RUN ON A 40GB-GPU USING THE 70B VERSION OF LLAMA
 
 DEBUG = True
 RESULT_DIR = "results"
 DATASET_PATH = "./data/dataset.csv"
 RUNS = [
     # Models that work:
-    # {"model_id": "meta-llama/Meta-Llama-3.1-8B-Instruct", "quantize": True},  # quantized at runtime
+    {"model_id": "meta-llama/Meta-Llama-3.1-8B-Instruct", "quantize": True},  # quantized at runtime
     # {"model_id": "meta-llama/Meta-Llama-3.1-8B-Instruct", "quantize": False},  # "full" version
     {"model_id": "neuralmagic/Meta-Llama-3.1-8B-Instruct-quantized.w4a16", "quantize": False},
     {"model_id": "unsloth/Meta-Llama-3.1-8B-Instruct-bnb-4bit", "quantize": False},
@@ -30,6 +30,9 @@ RUNS = [
     # "epfl-llm/meditron-7b",  # produces bad results because it doesn't speak french
     # "hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4",  # error in llama rotary embedding forward function, maybe wrong version of transformers?
 ]
+AUTO_GPTQ_MODELS = [
+    "neuralmagic/Meta-Llama-3.1-8B-Instruct-quantized.w4a16",
+]
 
 
 def main():
@@ -40,7 +43,8 @@ def main():
         print("Benchmarking %s\n" % run["model_id"])
         print_gpu_info()
         benchmark_one_model(**run)
-    print("Models benchmarked!")
+        print("Benchmarked %s\n" % run["model_id"])
+    print("Benchmarking finished!")
 
 
 def benchmark_one_model(
@@ -57,8 +61,7 @@ def benchmark_one_model(
         dict: benchmark metrics including time and memory usage
     """
     # Initialize model arguments
-    torch_dtype = torch.float16 if "hugging-quants" in model_id else torch.bfloat16
-    model_kwargs = {"torch_dtype": torch_dtype}
+    model_kwargs = {"torch_dtype": torch.float16}  # bfloat16 TODO CHECK DTYPE IN MODEL CONFIG
     if quantize:
         assert not any(
             [s in model_id.lower() for s in ["-4bit", "-int4", "-quant"]]
@@ -72,12 +75,14 @@ def benchmark_one_model(
         model_kwargs=model_kwargs,
         device_map="auto",
     )
+    if model_id in AUTO_GPTQ_MODELS:
+        from auto_gptq import exllama_set_max_input_length
+        pipeline.model = exllama_set_max_input_length(pipeline.model, max_input_length=2500)
     
     # Prompt the model with all samples of the dataset
     dataset = Dataset.from_csv(DATASET_PATH)
     dataset = dataset.rename_columns({"Texte": "input_text", "mRS": "label"})
     process_fn = lambda sample: process_sample(sample, pipeline)
-    # process_fn = lambda sample: ray.get(process_sample.remote(sample, pipeline))
     if DEBUG: dataset = Dataset.from_dict(dataset[:2])
     
     # Measure computation time and GPU memory usage
@@ -108,12 +113,6 @@ def benchmark_one_model(
     dataset.to_csv(output_path, index=False)
     
     # Plot evaluation metrics to a png file
-    # metrics = {
-    #     "Time per Sample [minute]": times / (60 * len(dataset)),
-    #     "Peak VRAM Usage [32-GB]": memories / 32,
-    #     "Error []": errors,
-    #     "Distance [mRS unit]": distances,
-    # }
     metrics = [
         {"name": "Time per Sample", "unit": "s", "max_y": 60.0, "values": times / len(dataset)},
         {"name": "Peak VRAM Usage", "unit": "GB", "max_y": 30.0, "values": memories},
@@ -145,16 +144,15 @@ def process_sample(
         dict[str, str]: updated sample with extracted reasoning and predictions
     """
     messages = build_prompt(sample["input_text"])
-    with torch.no_grad():  # useful?
-        llm_outputs = pipeline(
-            messages,
-            max_new_tokens=1024,
-            pad_token_id=pipeline.tokenizer.eos_token_id,  # would be set in any case
-        )
+    llm_outputs = pipeline(
+        messages,
+        max_new_tokens=1024,
+        pad_token_id=pipeline.tokenizer.eos_token_id,  # would be set in any case
+    )
     output_text = llm_outputs[0]["generated_text"][-1]["content"]
     question_output = extract_reasoning_and_prediction(output_text)
     sample.update(question_output)
-        
+    
     return sample
 
 

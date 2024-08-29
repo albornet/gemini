@@ -13,13 +13,13 @@ from sklearn.metrics import confusion_matrix
 
 # TODO: TEST IF ANY OF THE MODELS THAT WORK FINE CAN BE RUN ON A 40GB-GPU USING THE 70B VERSION OF LLAMA
 
-DEBUG = True
+DEBUG = False
 RESULT_DIR = "results"
 DATASET_PATH = "./data/dataset.csv"
 RUNS = [
     # Models that work:
     {"model_id": "meta-llama/Meta-Llama-3.1-8B-Instruct", "quantize": True},  # quantized at runtime
-    # {"model_id": "meta-llama/Meta-Llama-3.1-8B-Instruct", "quantize": False},  # "full" version
+    {"model_id": "meta-llama/Meta-Llama-3.1-8B-Instruct", "quantize": False},  # "full" version
     {"model_id": "neuralmagic/Meta-Llama-3.1-8B-Instruct-quantized.w4a16", "quantize": False},
     {"model_id": "unsloth/Meta-Llama-3.1-8B-Instruct-bnb-4bit", "quantize": False},
     
@@ -61,7 +61,8 @@ def benchmark_one_model(
         dict: benchmark metrics including time and memory usage
     """
     # Initialize model arguments
-    model_kwargs = {"torch_dtype": torch.float16}  # bfloat16 TODO CHECK DTYPE IN MODEL CONFIG
+    torch_dtype = torch.float16 if model_id in AUTO_GPTQ_MODELS else torch.bfloat16
+    model_kwargs = {"torch_dtype": torch_dtype}
     if quantize:
         assert not any(
             [s in model_id.lower() for s in ["-4bit", "-int4", "-quant"]]
@@ -94,7 +95,7 @@ def benchmark_one_model(
     )
     
     # Compute performance metrics
-    cm_fn = lambda d: confusion_matrix(d["prediction"], d["label"], labels=list(range(-1, 7)))
+    cm_fn = lambda d: confusion_matrix(d["label"], d["prediction"], labels=list(range(-1, 7)))
     error_fn = lambda d: np.mean(np.array(d["prediction"]) != np.array(d["label"]))
     distance_fn = lambda d: np.mean(np.abs(np.array(d["prediction"]) - np.array(d["label"])))
     cm = np.sum([cm_fn(o) for o in outputs], axis=0)

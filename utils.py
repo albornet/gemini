@@ -25,7 +25,7 @@ def do_bench_custom(
     """
     assert n_repeats > 1, "Quantiles cannot be measured for n_repeats < 1"
     torch.cuda.synchronize()
-    # We maintain a buffer of 256 MB that we clear
+    # They maintain a buffer of 256 MB that they clear
     # before each kernel call to make sure that the L2
     # doesn"t contain any input data before the run
     if fast_flush:
@@ -46,8 +46,8 @@ def do_bench_custom(
     times = torch.empty(n_repeats, dtype=torch.float)
     memories = torch.empty(n_repeats, dtype=torch.float)
     for i in range(n_repeats):
-        # We don"t want `fn` to accumulate gradient values
-        # if it contains a backward pass. So we clear the
+        # They don"t want `fn` to accumulate gradient values
+        # if it contains a backward pass. So they clear the
         # provided gradients
         if grad_to_none is not None:
             for x in grad_to_none:
@@ -89,7 +89,7 @@ def record_metrics(
     num_metrics = len(metrics)
     _, ax = plt.subplots(
         nrows=1,
-        ncols=num_metrics + 1,  # +1 for the confusion matrix
+        ncols=num_metrics + 1,  # "+ 1" for the confusion matrix
         figsize=(12, 5),
         width_ratios=[0.5] + [0.5 / num_metrics for _ in range(num_metrics)],
     )
@@ -101,13 +101,12 @@ def record_metrics(
     ax[0].set_yticks(range(len(labels)))
     ax[0].set_xticklabels(labels)
     ax[0].set_yticklabels(labels)
-    ax[0].set_xlabel("True mRS")
-    ax[0].set_ylabel("Predicted mRS")
+    ax[0].set_xlabel("Predicted mRS")
+    ax[0].set_ylabel("True mRS")
     ax[0].set_title("Confusion Matrix")
     
     # Plot each metric in a separate subplot
     colors = ["tab:blue", "tab:orange", "tab:green", "tab:red", "tab:purple"] * 10
-    # for i, (metric_name, mean, sem) in enumerate(zip(names, max_ys, means, sems)):
     for i, metric in enumerate(metrics):
         mean = metric["values"].mean().item()
         sem = metric["values"].std(unbiased=True).item() / len(metric["values"])

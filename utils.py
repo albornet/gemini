@@ -65,7 +65,12 @@ def do_bench_custom(
         # Record time and peak memory usage
         torch.cuda.synchronize()
         times[i] = start_event[i].elapsed_time(end_event[i]) / 1000  # in seconds
-        memories[i] = torch.cuda.max_memory_allocated() / (1024 ** 3)  # in GB
+        # memories[i] = torch.cuda.max_memory_allocated() / (1024 ** 3)  # in GB
+        max_memory_all_devices = [
+            torch.cuda.max_memory_allocated(device=d) / (1024 ** 3)  # in GB
+            for d in range(torch.cuda.device_count())
+        ]
+        memories[i] = sum(max_memory_all_devices)
         
         # Capture metric using fn output
         if return_outputs:

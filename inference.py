@@ -18,13 +18,15 @@ RESULT_DIR = "results"
 DATASET_PATH = "./data/dataset.csv"
 RUNS = [
     # Models that work:
-    {"model_id": "meta-llama/Meta-Llama-3.1-8B-Instruct", "quantize": True},  # quantized at runtime
-    {"model_id": "meta-llama/Meta-Llama-3.1-8B-Instruct", "quantize": False},  # "full" version
-    {"model_id": "neuralmagic/Meta-Llama-3.1-8B-Instruct-quantized.w4a16", "quantize": False},
-    {"model_id": "unsloth/Meta-Llama-3.1-8B-Instruct-bnb-4bit", "quantize": False},
+    # {"model_id": "meta-llama/Meta-Llama-3.1-8B-Instruct", "runtime_quantize": True},  # quantized at runtime
+    # {"model_id": "meta-llama/Meta-Llama-3.1-8B-Instruct", "runtime_quantize": False},  # "full" version
+    # {"model_id": "unsloth/Meta-Llama-3.1-8B-Instruct-bnb-4bit"},
+    # {"model_id": "neuralmagic/Meta-Llama-3.1-8B-Instruct-quantized.w4a16"},
     
     # # Models not tested yet:
-    # {"model_id": "meta-llama/Meta-Llama-3.1-70B-Instruct", "quantize": True},  # quantized at runtime
+    {"model_id": "meta-llama/Meta-Llama-3.1-70B-Instruct", "runtime_quantize": True},  # quantized at runtime
+    {"model_id": "unsloth/Meta-Llama-3.1-70B-Instruct-bnb-4bit"},
+    {"model_id": "neuralmagic/Meta-Llama-3.1-70B-Instruct-quantized.w4a16"},
     
     # Models that did not work:
     # "epfl-llm/meditron-7b",  # produces bad results because it doesn't speak french
@@ -32,6 +34,7 @@ RUNS = [
 ]
 AUTO_GPTQ_MODELS = [
     "neuralmagic/Meta-Llama-3.1-8B-Instruct-quantized.w4a16",
+    "neuralmagic/Meta-Llama-3.1-70B-Instruct-quantized.w4a16",
 ]
 
 
@@ -49,21 +52,21 @@ def main():
 
 def benchmark_one_model(
     model_id: str,
-    quantize: bool=False,
+    runtime_quantize: bool=False,
 ) -> dict:
     """ Prompt a large language model with with medical questions and computes
         metrics about computation time, GPU memory usage, and error rate
     
     Args:
         model_id (str): reference string to load model from huggingface
-        quantize (bool): if True, runtime quantization is used        
+        runtime_quantize (bool): if True, runtime quantization is used        
     Returns:
         dict: benchmark metrics including time and memory usage
     """
     # Initialize model arguments
     torch_dtype = torch.float16 if model_id in AUTO_GPTQ_MODELS else torch.bfloat16
     model_kwargs = {"torch_dtype": torch_dtype}
-    if quantize:
+    if runtime_quantize:
         assert not any(
             [s in model_id.lower() for s in ["-4bit", "-int4", "-quant"]]
         ), "Model is pre-quantized, you should not use runtime quantization!"
@@ -78,7 +81,7 @@ def benchmark_one_model(
     )
     if model_id in AUTO_GPTQ_MODELS:
         from auto_gptq import exllama_set_max_input_length
-        pipeline.model = exllama_set_max_input_length(pipeline.model, max_input_length=2500)
+        pipeline.model = exllama_set_max_input_length(pipeline.model, max_input_length=4096)
     
     # Prompt the model with all samples of the dataset
     dataset = Dataset.from_csv(DATASET_PATH)
@@ -108,15 +111,15 @@ def benchmark_one_model(
             dataset = dataset.add_column(f"{key}_{i:03}", output[key])
             
     # Write raw results and metrics to csv files
-    model_name = "%s_quantized" % model_id if quantize else model_id
+    model_name = "%s_quantized" % model_id if runtime_quantize else model_id
     output_path = os.path.join(RESULT_DIR, "%s_raw.csv" % model_name)
     os.makedirs(os.path.split(output_path)[0], exist_ok=True)
     dataset.to_csv(output_path, index=False)
     
     # Plot evaluation metrics to a png file
     metrics = [
-        {"name": "Time per Sample", "unit": "s", "max_y": 60.0, "values": times / len(dataset)},
-        {"name": "Peak VRAM Usage", "unit": "GB", "max_y": 30.0, "values": memories},
+        {"name": "Time per Sample", "unit": "s", "max_y": 100.0, "values": times / len(dataset)},
+        {"name": "Peak VRAM Usage", "unit": "GB", "max_y": 100.0, "values": memories},
         {"name": "Error Rate", "unit": "%", "max_y": 1.0, "values": errors},
         {"name": "Distance", "unit": "mRS", "max_y": 1.0, "values": distances},
     ]

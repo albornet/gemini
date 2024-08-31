@@ -19,17 +19,17 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-# # Prompt the user to clean docker cache (my computer disk is small...)
-# read -p "Do you want to clean up all unused Docker resources? [y/N]: " -r
-# echo  # new line
-# if [[ $REPLY =~ ^[Yy]$ ]]; then
-#     docker image prune -f
-#     docker container prune -f
-#     docker builder prune -f
-#     docker system prune -f
-# else
-#     echo "Skipping docker cache cleaning"
-# fi
+# Prompt the user to clean docker cache (my computer disk is small...)
+read -p "Do you want to clean up all unused Docker resources? [y/N]: " -r
+echo  # new line
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+    docker image prune -f
+    docker container prune -f
+    docker builder prune -f
+    docker system prune -f
+else
+    echo "Skipping docker cache cleaning"
+fi
 
 # Convert the Docker tar file to a Singularity (Apptainer) SIF image
 apptainer build $IMAGE_NAME-image.sif docker-archive://$IMAGE_NAME-image.tar

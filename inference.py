@@ -5,95 +5,56 @@ import time
 import numpy as np
 import torch
 import transformers
+from llama_cpp import Llama
 from transformers import BitsAndBytesConfig
 from datasets import Dataset
 from functools import partial
 from utils import do_bench_custom, record_metrics, print_gpu_info
 from sklearn.metrics import confusion_matrix
-
-# TODO: TEST IF ANY OF THE MODELS THAT WORK FINE CAN BE RUN ON A 40GB-GPU USING THE 70B VERSION OF LLAMA
-
-DEBUG = False
-RESULT_DIR = "results"
-DATASET_PATH = "./data/dataset.csv"
-RUNS = [
-    # Models that work:
-    # {"model_id": "meta-llama/Meta-Llama-3.1-8B-Instruct", "runtime_quantize": True},  # quantized at runtime
-    # {"model_id": "meta-llama/Meta-Llama-3.1-8B-Instruct", "runtime_quantize": False},  # "full" version
-    # {"model_id": "unsloth/Meta-Llama-3.1-8B-Instruct-bnb-4bit"},
-    # {"model_id": "neuralmagic/Meta-Llama-3.1-8B-Instruct-quantized.w4a16"},
-    
-    # # Models not tested yet:
-    {"model_id": "meta-llama/Meta-Llama-3.1-70B-Instruct", "runtime_quantize": True},  # quantized at runtime
-    {"model_id": "unsloth/Meta-Llama-3.1-70B-Instruct-bnb-4bit"},
-    {"model_id": "neuralmagic/Meta-Llama-3.1-70B-Instruct-quantized.w4a16"},
-    
-    # Models that did not work:
-    # "epfl-llm/meditron-7b",  # produces bad results because it doesn't speak french
-    # "hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4",  # error in llama rotary embedding forward function, maybe wrong version of transformers?
-]
-AUTO_GPTQ_MODELS = [
-    "neuralmagic/Meta-Llama-3.1-8B-Instruct-quantized.w4a16",
-    "neuralmagic/Meta-Llama-3.1-70B-Instruct-quantized.w4a16",
-]
+from config import Config as cfg
 
 
 def main():
     """ Run benchmarks on different generative large language models
     """
     print("Benchmarking started\n")
-    for run in RUNS:
+    for run in cfg.RUNS:
+    
         print("Benchmarking %s\n" % run["model_id"])
         print_gpu_info()
-        benchmark_one_model(**run)
+    
+        inference_generator = create_inference_generator(**run)
+        benchmark_one_model(inference_generator)
+        
         print("Benchmarked %s\n" % run["model_id"])
+    
     print("Benchmarking finished!")
 
 
 def benchmark_one_model(
-    model_id: str,
-    runtime_quantize: bool=False,
+    inference_generator: transformers.pipelines.base.Pipeline|Llama,
 ) -> dict:
-    """ Prompt a large language model with with medical questions and computes
+    """ Prompt a large language model with medical questions and computes
         metrics about computation time, GPU memory usage, and error rate
     
     Args:
         model_id (str): reference string to load model from huggingface
-        runtime_quantize (bool): if True, runtime quantization is used        
+        runtime_quantize (bool): if True, runtime quantization is used    
+            
     Returns:
         dict: benchmark metrics including time and memory usage
     """
-    # Initialize model arguments
-    torch_dtype = torch.float16 if model_id in AUTO_GPTQ_MODELS else torch.bfloat16
-    model_kwargs = {"torch_dtype": torch_dtype}
-    if runtime_quantize:
-        assert not any(
-            [s in model_id.lower() for s in ["-4bit", "-int4", "-quant"]]
-        ), "Model is pre-quantized, you should not use runtime quantization!"
-        model_kwargs["quantization_config"] = BitsAndBytesConfig(load_in_4bit=True)
-    
-    # Build pipeline
-    pipeline = transformers.pipeline(
-        task="text-generation",
-        model=model_id,
-        model_kwargs=model_kwargs,
-        device_map="auto",
-    )
-    if model_id in AUTO_GPTQ_MODELS:
-        from auto_gptq import exllama_set_max_input_length
-        pipeline.model = exllama_set_max_input_length(pipeline.model, max_input_length=4096)
-    
     # Prompt the model with all samples of the dataset
-    dataset = Dataset.from_csv(DATASET_PATH)
+    dataset = Dataset.from_csv(cfg.DATASET_PATH)
     dataset = dataset.rename_columns({"Texte": "input_text", "mRS": "label"})
-    process_fn = lambda sample: process_sample(sample, pipeline)
-    if DEBUG: dataset = Dataset.from_dict(dataset[:2])
+    process_fn = lambda sample: process_sample(sample, inference_generator)
+    if cfg.DEBUG: dataset = Dataset.from_dict(dataset[:2])
     
     # Measure computation time and GPU memory usage
     bench_fn = partial(dataset.map, function=process_fn, batch_size=1)
     times, memories, outputs = do_bench_custom(
         benchmarked_fn=bench_fn,
-        n_repeats=2 if DEBUG else 10,
+        n_repeats=2 if cfg.DEBUG else 10,
         return_outputs=True,
     )
     
@@ -111,8 +72,7 @@ def benchmark_one_model(
             dataset = dataset.add_column(f"{key}_{i:03}", output[key])
             
     # Write raw results and metrics to csv files
-    model_name = "%s_quantized" % model_id if runtime_quantize else model_id
-    output_path = os.path.join(RESULT_DIR, "%s_raw.csv" % model_name)
+    output_path = os.path.join(cfg.RESULT_DIR, "%s_raw.csv" % inference_generator.name)
     os.makedirs(os.path.split(output_path)[0], exist_ok=True)
     dataset.to_csv(output_path, index=False)
     
@@ -127,33 +87,97 @@ def benchmark_one_model(
     record_metrics(result_path, confusion_matrix=cm, metrics=metrics)
     
     # Delete pipeline and free GPU memory cache
-    del pipeline
+    del inference_generator
     gc.collect()
     torch.cuda.empty_cache()
     time.sleep(5)
 
 
+def create_inference_generator(
+    model_id: str,
+    quantize_mode: str|None=None,
+) -> transformers.pipelines.base.Pipeline|Llama:
+    """ Create an LLM-based inference generator for solving a task
+    
+    Args:
+        model_id (str): reference string to load model from huggingface
+        quantize_mode (str, optional): define quantization used by the model
+        
+    Returns:
+        transformers.pipelines.base.Pipeline|Llama: inference generator
+    """
+    # Initialize Llama-cpp-python model
+    if ".gguf" in quantize_mode:
+        inference_generator = Llama.from_pretrained(
+            repo_id=model_id,
+            filename=quantize_mode,
+            n_gpu_layers=-1,
+            n_ctx=cfg.MAX_INPUT_LENGTH,
+            verbose=False,
+        )
+    
+    # Initialize a classic transformer pipeline
+    else:
+        # Initialize model arguments
+        torch_dtype = torch.bfloat16 if model_id not in cfg.AUTO_GPTQ_MODELS else torch.float16
+        model_kwargs = {"torch_dtype": torch_dtype}
+        if quantize_mode == "bits_and_bytes":
+            assert not any(
+                [s in model_id.lower() for s in ["-4bit", "-int4", "-quant"]]
+            ), "Model is pre-quantized, you should not use runtime quantization!"
+            model_kwargs["quantization_config"] = BitsAndBytesConfig(load_in_4bit=True)
+        
+        # Build pipeline
+        inference_generator = transformers.pipeline(
+            task="text-generation",
+            model=model_id,
+            model_kwargs=model_kwargs,
+            device_map="auto",
+        )
+        if model_id in cfg.AUTO_GPTQ_MODELS:
+            from auto_gptq import exllama_set_max_input_length
+            inference_generator.model = \
+                exllama_set_max_input_length(
+                    inference_generator.model,
+                    max_input_length=cfg.MAX_INPUT_LENGTH,
+                )
+    
+    # Return inference generator after giving it a name
+    inference_generator.name = "%s_quantized_%s" % (model_id, quantize_mode)
+    return inference_generator
+
+
 def process_sample(
     sample: dict[str, str],
-    pipeline: transformers.pipeline,
+    inference_generator: transformers.pipelines.base.Pipeline|Llama,
 ) -> dict[str, str]:
     """ Process a sample by formatting the input text, prompting an LLM, and
         extracting reasoning and predictions.
 
     Args:
         sample (dict[str, str]): sample including input text
-        pipeline (transformers.pipeline): pipeline for language model inference
+        inference_generator (transformers.pipelines.base.Pipeline, Llama):
+            pipeline for language model inference
 
     Returns:
         dict[str, str]: updated sample with extracted reasoning and predictions
     """
     messages = build_prompt(sample["input_text"])
-    llm_outputs = pipeline(
-        messages,
-        max_new_tokens=1024,
-        pad_token_id=pipeline.tokenizer.eos_token_id,  # would be set in any case
-    )
-    output_text = llm_outputs[0]["generated_text"][-1]["content"]
+    
+    # Case where a classic pipeline is used
+    if isinstance(inference_generator, transformers.pipelines.base.Pipeline):
+        llm_outputs = inference_generator(
+            messages,
+            max_new_tokens=1024,
+            pad_token_id=inference_generator.tokenizer.eos_token_id,  # would be set in any case
+        )
+        output_text = llm_outputs[0]["generated_text"][-1]["content"]
+    
+    # Case where a llama-cpp-python model is used
+    if isinstance(inference_generator, Llama):
+        outputs = inference_generator.create_chat_completion(messages)
+        output_text = outputs["choices"][0]["message"]["content"]
+    
     question_output = extract_reasoning_and_prediction(output_text)
     sample.update(question_output)
     

@@ -11,8 +11,6 @@ def do_bench_custom(
     n_warmups: int=0,
     n_repeats: int=10,
     return_outputs: bool=False,
-    grad_to_none: torch.Tensor=None,
-    fast_flush: bool=True,
 ) -> tuple[torch.Tensor, torch.Tensor, list[Any]|None]:
     """ Benchmarking function modified from triton.testing to return output
         https://triton-lang.org/main/python-api/generated/triton.testing.do_bench 
@@ -25,17 +23,11 @@ def do_bench_custom(
     """
     assert n_repeats > 1, "Quantiles cannot be measured for n_repeats < 1"
     torch.cuda.synchronize()
-    # They maintain a buffer of 256 MB that they clear
-    # before each kernel call to make sure that the L2
-    # doesn"t contain any input data before the run
-    if fast_flush:
-        cache = torch.empty(int(256e6 // 4), dtype=torch.int, device="cuda")
-    else:
-        cache = torch.empty(int(256e6), dtype=torch.int8, device="cuda")
+    cache = torch.empty(int(256e6), dtype=torch.int8, device="cuda")
     
     # Compute number of warmup and repeat
-    start_event = [torch.cuda.Event(enable_timing=True) for i in range(n_repeats)]
-    end_event = [torch.cuda.Event(enable_timing=True) for i in range(n_repeats)]
+    start_event = [torch.cuda.Event(enable_timing=True) for _ in range(n_repeats)]
+    end_event = [torch.cuda.Event(enable_timing=True) for _ in range(n_repeats)]
     
     # Warm-up
     for _ in range(n_warmups):
@@ -46,17 +38,11 @@ def do_bench_custom(
     times = torch.empty(n_repeats, dtype=torch.float)
     memories = torch.empty(n_repeats, dtype=torch.float)
     for i in range(n_repeats):
-        # They don"t want `fn` to accumulate gradient values
-        # if it contains a backward pass. So they clear the
-        # provided gradients
-        if grad_to_none is not None:
-            for x in grad_to_none:
-                x.grad = None
-                
+        
         # Clear L2 cache and reset peak memory usage counter
         cache.zero_()
         torch.cuda.reset_peak_memory_stats()
-        
+                
         # Record time of fn
         start_event[i].record()
         output = benchmarked_fn()
@@ -65,18 +51,40 @@ def do_bench_custom(
         # Record time and peak memory usage
         torch.cuda.synchronize()
         times[i] = start_event[i].elapsed_time(end_event[i]) / 1000  # in seconds
-        # memories[i] = torch.cuda.max_memory_allocated() / (1024 ** 3)  # in GB
-        max_memory_all_devices = [
+        max_gpu_memory = sum([
             torch.cuda.max_memory_allocated(device=d) / (1024 ** 3)  # in GB
             for d in range(torch.cuda.device_count())
-        ]
-        memories[i] = sum(max_memory_all_devices)
+        ])
+        if max_gpu_memory < 0.5:
+            max_gpu_memory = get_memory_usage_without_torch()
+        memories[i] = max_gpu_memory
         
         # Capture metric using fn output
         if return_outputs:
             outputs.append(output)
     
     return times, memories, outputs
+
+
+def get_memory_usage_without_torch():
+    """ Compute the amount of GPU memory used at the moment
+    
+    Returns:
+        int: GPU memory used in all available GPUs, in GB
+    """
+    # Run `nvidia-smi` and get the output
+    result = subprocess.run(
+        ["nvidia-smi", "--query-gpu=memory.used", "--format=csv,nounits,noheader"],
+        stdout=subprocess.PIPE,
+        text=True
+    )
+    
+    # Convert the result to an integer, in GB)
+    MiB_per_device = [int(s.strip()) for s in result.stdout.split("\n") if s]
+    MiB_used = sum(MiB_per_device)
+    GB_used = MiB_used * 1024 ** 2 / 1000 ** 3
+    
+    return GB_used
 
 
 def record_metrics(

@@ -2,13 +2,13 @@
 
 #SBATCH --job-name=gemini_inference
 #SBATCH --partition=shared-gpu,private-teodoro-gpu
-#SBATCH --nodelist=gpu017,gpu021,gpu025,gpu026,gpu034,gpu035,gpu044,gpu046,gpu047
+#SBATCH --nodelist=gpu020,gpu022,gpu027,gpu028,gpu030,gpu031
 #SBATCH --nodes=1  # so that only one node from the node list will be chosen
 #SBATCH --ntasks=1
-#SBATCH --gpus-per-task=5
+#SBATCH --gpus-per-task=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64gb
-#SBATCH --time=0-02:00:00
+#SBATCH --time=0-10:00:00
 #SBATCH --output=./results/logs/job_%j.txt
 #SBATCH --error=./results/logs/job_%j.err
 

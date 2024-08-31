@@ -18,8 +18,11 @@ class Config:
         # Models using Llama-cpp-python with GGUF quantization (small, specialized)
         {"model_id": "mradermacher/Bio-Medical-Llama-3.1-8B-i1-GGUF", "quantize_mode": "Bio-Medical-Llama-3.1-8B.i1-IQ1_M.gguf"},
         {"model_id": "mradermacher/Bio-Medical-Llama-3.1-8B-i1-GGUF", "quantize_mode": "Bio-Medical-Llama-3.1-8B.i1-IQ2_M.gguf"},
-        {"model_id": "mradermacher/Bio-Medical-Llama-3.1-8B-i1-GGUF", "quantize_mode": "Bio-Medical-Llama-3.1-8B.i1-Q3_M.gguf"},
+        {"model_id": "mradermacher/Bio-Medical-Llama-3.1-8B-i1-GGUF", "quantize_mode": "Bio-Medical-Llama-3.1-8B.i1-IQ3_M.gguf"},
         {"model_id": "mradermacher/Bio-Medical-Llama-3.1-8B-i1-GGUF", "quantize_mode": "Bio-Medical-Llama-3.1-8B.i1-Q4_K_M.gguf"},
+        # {"model_id": "mradermacher/OpenBioLLM-Llama3-8B-GGUF", "quantize_mode": "OpenBioLLM-Llama3-8B.Q2_K.gguf"},
+        # {"model_id": "mradermacher/OpenBioLLM-Llama3-8B-GGUF", "quantize_mode": "OpenBioLLM-Llama3-8B.IQ3_M.gguf"},
+        # {"model_id": "mradermacher/OpenBioLLM-Llama3-8B-GGUF", "quantize_mode": "OpenBioLLM-Llama3-8B.Q4_K_M.gguf"},
         
         # Models using Llama-cpp-python with GGUF quantization (large, general)
         {"model_id": "mradermacher/Meta-Llama-3.1-70B-Instruct-i1-GGUF", "quantize_mode": "Meta-Llama-3.1-70B-Instruct.i1-IQ1_M.gguf"},

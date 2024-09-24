@@ -1,0 +1,25 @@
+Bootstrap: docker
+From: pytorch/pytorch:2.4.1-cuda12.4-cudnn9-devel
+
+%post
+    # Install basics
+    apt-get update && apt-get install -y build-essential cmake python3 python3-pip git
+    ln -s /usr/bin/python3 /usr/bin/python
+    
+    # Normal pip installs
+    pip install --no-cache-dir -r /app/requirements.txt --upgrade
+
+    # Pip installs requiring arguments
+    CMAKE_ARGS="-DGGML_CUDA=on" pip install llama-cpp-python
+    # FORCE_CMAKE=1 CMAKE_ARGS="-DGGML_CUDA=on" pip install llama-cpp-python --no-cache-dir --force-reinstall --upgrade
+    # pip install flash-attn --no-build-isolation --upgrade
+
+%files
+    # Copy requirements.txt into the container
+    requirements.txt /app/
+    gemini-image_test.py /app/
+
+%labels
+    Author alban.bornet@unige.ch
+    Version 0.1
+    Description "Llama-cpp-python container"

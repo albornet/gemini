@@ -22,7 +22,7 @@ def main():
     
         print("Benchmarking %s\n" % run["model_id"])
         print_gpu_info()
-    
+        
         inference_generator = create_inference_generator(**run)
         benchmark_one_model(inference_generator)
         
@@ -79,7 +79,7 @@ def benchmark_one_model(
     # Plot evaluation metrics to a png file
     metrics = [
         {"name": "Time per Sample", "unit": "s", "max_y": 100.0, "values": times / len(dataset)},
-        {"name": "Peak VRAM Usage", "unit": "GB", "max_y": 100.0, "values": memories},
+        {"name": "Peak VRAM Usage", "unit": "GB", "max_y": 60.0, "values": memories},
         {"name": "Error Rate", "unit": "%", "max_y": 1.0, "values": errors},
         {"name": "Distance", "unit": "mRS", "max_y": 1.0, "values": distances},
     ]
@@ -113,7 +113,7 @@ def create_inference_generator(
             filename=quantize_mode,
             n_gpu_layers=-1,
             n_ctx=cfg.MAX_INPUT_LENGTH,
-            verbose=False,
+            verbose=True,
         )
     
     # Initialize a classic transformer pipeline

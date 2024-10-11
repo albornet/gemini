@@ -1,38 +1,69 @@
 import os
 import re
 import gc
-import time
+import argparse
+import itertools
 import numpy as np
 import torch
-import transformers
+import torch.multiprocessing as torch_mp
 from llama_cpp import Llama
-from transformers import BitsAndBytesConfig
 from datasets import Dataset
 from functools import partial
 from utils import do_bench_custom, record_metrics, print_gpu_info
 from sklearn.metrics import confusion_matrix
 from config import Config as cfg
 
+parser = argparse.ArgumentParser(description="Benchmark LLMs on healthcare tasks")
+parser.add_argument("-t", "--runtype", default="debug", help="Type of run")
+args = parser.parse_args()
+RUNTYPE = args.runtype  # very_small, small, big, all
+
 
 def main():
-    """ Run benchmarks on different generative large language models
+    """ Run benchmarks on different generative large language models in separate
+        processes to avoid GPU memory leak or accumulation
     """
-    print("Benchmarking started\n")
-    for run in cfg.RUNS:
+    # Select runs based on script argument
+    if RUNTYPE == "all":
+        run_args_list = list(itertools.chain(*cfg.RUN_DICT.values()))
+    else:
+        assert RUNTYPE in cfg.RUN_DICT, "Invalid runtype argument"
+        run_args_list = cfg.RUN_DICT[RUNTYPE]
     
-        print("Benchmarking %s\n" % run["model_id"])
-        print_gpu_info()
+    # Benchmark all models sequentially, spawning one process per benchmark
+    print("Benchmarking started, using %s model types\n" % RUNTYPE)
+    for run_args in run_args_list:
+        process = torch_mp.Process(target=clean_benchmark_run, args=(run_args,))
+        process.start()  # spawn a new process for each benchmark run
+        process.join()   # wait for the process to complete before continuing
         
-        inference_generator = create_inference_generator(**run)
-        benchmark_one_model(inference_generator)
-        
-        print("Benchmarked %s\n" % run["model_id"])
-    
+    # Success message
     print("Benchmarking finished!")
 
 
+def clean_benchmark_run(run_args: dict[str, str]) -> None:
+    """ Runs the benchmark for a single model in a separate process
+    """
+    # Check gpu info and initialize inference generator
+    print_gpu_info()
+    inference_generator = create_inference_generator(**run_args)
+    
+    # Actual benchmark running part
+    try:
+        print("Benchmarking %s\n" % inference_generator.name)
+        benchmark_one_model(inference_generator)
+        print("Benchmarked %s\n" % inference_generator.name)
+    
+    # Data cleaning part to free GPU memory
+    finally:
+        if "inference_generator" in locals(): del inference_generator
+        torch.cuda.synchronize()
+        torch.cuda.empty_cache()
+        gc.collect()
+        
+        
 def benchmark_one_model(
-    inference_generator: transformers.pipelines.base.Pipeline|Llama,
+    inference_generator: Llama,
 ) -> dict:
     """ Prompt a large language model with medical questions and computes
         metrics about computation time, GPU memory usage, and error rate
@@ -40,23 +71,23 @@ def benchmark_one_model(
     Args:
         model_id (str): reference string to load model from huggingface
         runtime_quantize (bool): if True, runtime quantization is used    
-            
+        
     Returns:
         dict: benchmark metrics including time and memory usage
     """
     # Prompt the model with all samples of the dataset
     dataset = Dataset.from_csv(cfg.DATASET_PATH)
-    dataset = dataset.rename_columns({"Texte": "input_text", "mRS": "label"})
     process_fn = lambda sample: process_sample(sample, inference_generator)
-    if cfg.DEBUG: dataset = Dataset.from_dict(dataset[:2])
+    if cfg.DEBUG: dataset = Dataset.from_dict(dataset[:5])
     
     # Measure computation time and GPU memory usage
-    bench_fn = partial(dataset.map, function=process_fn, batch_size=1)
+    bench_fn = partial(dataset.map, function=process_fn, batch_size=1, load_from_cache_file=False)
     times, memories, outputs = do_bench_custom(
         benchmarked_fn=bench_fn,
-        n_repeats=2 if cfg.DEBUG else 10,
+        n_repeats=2 if cfg.DEBUG else 5,
         return_outputs=True,
     )
+    times = times / len(dataset)  # since we want time per sample
     
     # Compute performance metrics
     cm_fn = lambda d: confusion_matrix(d["label"], d["prediction"], labels=list(range(-1, 7)))
@@ -72,31 +103,26 @@ def benchmark_one_model(
             dataset = dataset.add_column(f"{key}_{i:03}", output[key])
             
     # Write raw results and metrics to csv files
-    output_path = os.path.join(cfg.RESULT_DIR, "%s_raw.csv" % inference_generator.name)
+    output_path = os.path.join(cfg.RESULT_DIR, "%s_raw.csv" % inference_generator.path)
     os.makedirs(os.path.split(output_path)[0], exist_ok=True)
     dataset.to_csv(output_path, index=False)
     
     # Plot evaluation metrics to a png file
     metrics = [
-        {"name": "Time per Sample", "unit": "s", "max_y": 100.0, "values": times / len(dataset)},
+        {"name": "Time per Sample", "unit": "s", "max_y": 100.0, "values": times},
         {"name": "Peak VRAM Usage", "unit": "GB", "max_y": 60.0, "values": memories},
         {"name": "Error Rate", "unit": "%", "max_y": 1.0, "values": errors},
         {"name": "Distance", "unit": "mRS", "max_y": 1.0, "values": distances},
     ]
     result_path = output_path.replace("_raw.csv", "_metrics")
     record_metrics(result_path, confusion_matrix=cm, metrics=metrics)
-    
-    # Delete pipeline and free GPU memory cache
-    del inference_generator
-    gc.collect()
-    torch.cuda.empty_cache()
-    time.sleep(5)
 
 
 def create_inference_generator(
+    repo_name: str,
     model_id: str,
-    quantize_mode: str|None=None,
-) -> transformers.pipelines.base.Pipeline|Llama:
+    quantize_mode: str,
+) -> Llama:
     """ Create an LLM-based inference generator for solving a task
     
     Args:
@@ -104,82 +130,53 @@ def create_inference_generator(
         quantize_mode (str, optional): define quantization used by the model
         
     Returns:
-        transformers.pipelines.base.Pipeline|Llama: inference generator
+        Llama: inference generator
     """
     # Initialize Llama-cpp-python model
-    if ".gguf" in quantize_mode:
-        inference_generator = Llama.from_pretrained(
-            repo_id=model_id,
-            filename=quantize_mode,
-            n_gpu_layers=-1,
-            n_ctx=cfg.MAX_INPUT_LENGTH,
-            verbose=True,
-        )
-    
-    # Initialize a classic transformer pipeline
-    else:
-        # Initialize model arguments
-        torch_dtype = torch.bfloat16 if model_id not in cfg.AUTO_GPTQ_MODELS else torch.float16
-        model_kwargs = {"torch_dtype": torch_dtype}
-        if quantize_mode == "bits_and_bytes":
-            assert not any(
-                [s in model_id.lower() for s in ["-4bit", "-int4", "-quant"]]
-            ), "Model is pre-quantized, you should not use runtime quantization!"
-            model_kwargs["quantization_config"] = BitsAndBytesConfig(load_in_4bit=True)
-        
-        # Build pipeline
-        inference_generator = transformers.pipeline(
-            task="text-generation",
-            model=model_id,
-            model_kwargs=model_kwargs,
-            device_map="auto",
-        )
-        if model_id in cfg.AUTO_GPTQ_MODELS:
-            from auto_gptq import exllama_set_max_input_length
-            inference_generator.model = \
-                exllama_set_max_input_length(
-                    inference_generator.model,
-                    max_input_length=cfg.MAX_INPUT_LENGTH,
-                )
+    repo_id = "/".join((repo_name, model_id))  # always "/" for huggingface or Llama
+    inference_generator = Llama.from_pretrained(
+        repo_id=repo_id,
+        filename=quantize_mode,
+        n_gpu_layers=-1,
+        n_ctx=cfg.MAX_CONTEXT_LENGTH,
+        flash_attn=cfg.USE_FLASH_ATTENTION,
+        # logprobs=1,
+        verbose=False,
+    )
     
     # Return inference generator after giving it a name
-    inference_generator.name = "%s_quantized_%s" % (model_id, quantize_mode)
+    inference_generator.path = os.path.join(repo_name, model_id, quantize_mode)
+    inference_generator.name = "%s_quantized_%s" % (repo_id, quantize_mode)
     return inference_generator
 
 
 def process_sample(
     sample: dict[str, str],
-    inference_generator: transformers.pipelines.base.Pipeline|Llama,
+    inference_generator: Llama,
 ) -> dict[str, str]:
     """ Process a sample by formatting the input text, prompting an LLM, and
         extracting reasoning and predictions.
 
     Args:
         sample (dict[str, str]): sample including input text
-        inference_generator (transformers.pipelines.base.Pipeline, Llama):
-            pipeline for language model inference
+        inference_generator (Llama): pipeline for language model inference
 
     Returns:
         dict[str, str]: updated sample with extracted reasoning and predictions
     """
+    # Prompt model and collect output
     messages = build_prompt(sample["input_text"])
+    outputs = inference_generator.create_chat_completion(messages)
     
-    # Case where a classic pipeline is used
-    if isinstance(inference_generator, transformers.pipelines.base.Pipeline):
-        llm_outputs = inference_generator(
-            messages,
-            max_new_tokens=1024,
-            pad_token_id=inference_generator.tokenizer.eos_token_id,  # would be set in any case
-        )
-        output_text = llm_outputs[0]["generated_text"][-1]["content"]
-    
-    # Case where a llama-cpp-python model is used
-    if isinstance(inference_generator, Llama):
-        outputs = inference_generator.create_chat_completion(messages)
-        output_text = outputs["choices"][0]["message"]["content"]
-    
+    # Extract text response, reasoning, and model prediction
+    output_text = outputs["choices"][0]["message"]["content"]
     question_output = extract_reasoning_and_prediction(output_text)
     sample.update(question_output)
+    
+    # # Extract perplexity
+    # log_probs = [l[0] for l in outputs["choices"][0]["logprobs"]["token_logprobs"]]
+    # perplexity = torch.exp(-torch.tensor(log_probs).mean())
+    # sample.update({"perplexity": perplexity.item()})
     
     return sample
 
@@ -194,7 +191,7 @@ def build_prompt(input_text: str) -> list[dict[str, str]]:
         list[dict[str, str]]: messages to prompt a large language model
     """
     system_prompt = """
-Tu es un neuro-chirurgien et ta tâche est d’identifier le score sur l’Echelle de Rankin Modifiée Rankin (mRS) du patient, selon la lettre de sortie rédigée par un autre médecin.
+Tu es un neuro-chirurgien et ta tâche est d’identifier le score sur l’Echelle de Rankin Modifiée Rankin (mRS) du patient en fonction de son état après sa sortie, tel qu'il est décrit dans la lettre de sortie rédigée par un autre médecin.
 L'Échelle de Rankin Modifiée (mRS) est utilisée pour mesurer le degré d'incapacité chez les patients ayant subi un accident vasculaire cérébral (AVC), comme suit :
 0 : Aucun symptôme
 1 : Aucune incapacité significative malgré des symptômes ; capable d'effectuer toutes les tâches et activités habituelles
@@ -240,5 +237,6 @@ def extract_reasoning_and_prediction(
 
 
 if __name__ == "__main__":
+    torch_mp.set_start_method("spawn", force=True)
     main()
     

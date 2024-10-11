@@ -1,3 +1,4 @@
+import sys
 import subprocess
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -8,58 +9,49 @@ from typing import Any, Callable
 
 def do_bench_custom(
     benchmarked_fn: Callable,
-    n_warmups: int=0,
     n_repeats: int=10,
     return_outputs: bool=False,
 ) -> tuple[torch.Tensor, torch.Tensor, list[Any]|None]:
     """ Benchmarking function modified from triton.testing to return output
         https://triton-lang.org/main/python-api/generated/triton.testing.do_bench 
-        
-    :param benchmarked_fn: function to benchmark
-    :param n_warmups: number of warmup steps
-    :param n_repeats: number of repetitions for benchmark
-    :param return_outputs: if True, return outputs of the benchmarked function
-    :param grad_to_none: reset the gradient of the provided tensor to None
+    
+    Params:
+        benchmarked_fn: function to benchmark
+        n_repeats: number of repetitions for benchmark
+        return_outputs: if True, return outputs of the benchmarked function
     """
-    assert n_repeats > 1, "Quantiles cannot be measured for n_repeats < 1"
-    torch.cuda.synchronize()
-    cache = torch.empty(int(256e6), dtype=torch.int8, device="cuda")
+    assert n_repeats > 1, "n_repeats must be greater than 1"
     
-    # Compute number of warmup and repeat
-    start_event = [torch.cuda.Event(enable_timing=True) for _ in range(n_repeats)]
-    end_event = [torch.cuda.Event(enable_timing=True) for _ in range(n_repeats)]
-    
-    # Warm-up
-    for _ in range(n_warmups):
-        benchmarked_fn()
-        
-    # Benchmark
-    outputs = [] if return_outputs else None
+    # Initialize events, results storage, and outputs (if required)
+    start_event = torch.cuda.Event(enable_timing=True)
+    end_event = torch.cuda.Event(enable_timing=True)
     times = torch.empty(n_repeats, dtype=torch.float)
     memories = torch.empty(n_repeats, dtype=torch.float)
+    outputs = [] if return_outputs else None
+    
+    # Benchmark loop
     for i in range(n_repeats):
+        sys.stderr.write(f"Benchmark repeat {i + 1}/{n_repeats}\n")
         
-        # Clear L2 cache and reset peak memory usage counter
-        cache.zero_()
+        # Clear L2 cache and reset peak memory stats
+        torch.cuda.empty_cache()
         torch.cuda.reset_peak_memory_stats()
-                
-        # Record time of fn
-        start_event[i].record()
+        
+        # Time the function execution
+        start_event.record()
         output = benchmarked_fn()
-        end_event[i].record()
-        
-        # Record time and peak memory usage
+        end_event.record()
         torch.cuda.synchronize()
-        times[i] = start_event[i].elapsed_time(end_event[i]) / 1000  # in seconds
-        max_gpu_memory = sum([
-            torch.cuda.max_memory_allocated(device=d) / (1024 ** 3)  # in GB
-            for d in range(torch.cuda.device_count())
-        ])
-        if max_gpu_memory < 0.5:
-            max_gpu_memory = get_memory_usage_without_torch()
-        memories[i] = max_gpu_memory
         
-        # Capture metric using fn output
+        # Record the time and memory usage
+        times[i] = start_event.elapsed_time(end_event) / 1000  # in seconds
+        memories[i] = get_memory_usage_without_torch()  # in GB
+        # memories[i] = sum(
+        #     torch.cuda.max_memory_allocated(d) / (1024 ** 3)
+        #     for d in range(torch.cuda.device_count())
+        # )
+        
+        # Collect output if requested
         if return_outputs:
             outputs.append(output)
     
@@ -118,6 +110,15 @@ def record_metrics(
     ax[0].set_ylabel("True mRS")
     ax[0].set_title("Confusion Matrix")
     
+    # Polish confusion matrix
+    max_cm_value = np.max(confusion_matrix)
+    for i in range(len(confusion_matrix)):
+        for j in range(len(confusion_matrix[0])):
+            value = confusion_matrix[i, j]
+            if value > 0:
+                color = "white" if value > max_cm_value / 2 else "black"
+                ax[0].text(j, i, str(value), ha="center", va="center", color=color)
+            
     # Plot each metric in a separate subplot
     colors = ["tab:blue", "tab:orange", "tab:green", "tab:red", "tab:purple"] * 10
     for i, metric in enumerate(metrics):

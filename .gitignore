@@ -163,5 +163,7 @@ cython_debug/
 
 # Custom
 *.csv
+data/raw_docxs/*
 results/*
+results_*/*
 logs/*

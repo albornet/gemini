@@ -1,15 +1,16 @@
 class Config:
-    DEBUG = True
+    DEBUG = False
     RESULT_DIR = "results"
     DATASET_PATH = "./data/dataset.csv"
     USE_FLASH_ATTENTION = True
+    N_INFERENCE_REPEATS = 10  # number of times each inference is repeated for benchmark
     MAX_CONTEXT_LENGTH = 6144  # maximum tokens in a "lettre de sortie"
     RUN_DICT = {
         
         # Models requiring a very small GPU (up to ~1G)
         "very_small": [
             # Very small models!
-            {"repo_name": "mradermacher", "model_id": "Llama-3.2-1B-Instruct-i1-GGUF", "quantize_mode": "Llama-3.2-1B-Instruct.i1-IQ1_M.gguf"},
+            # {"repo_name": "mradermacher", "model_id": "Llama-3.2-1B-Instruct-i1-GGUF", "quantize_mode": "Llama-3.2-1B-Instruct.i1-IQ1_M.gguf"},
             {"repo_name": "mradermacher", "model_id": "Llama-3.2-1B-Instruct-i1-GGUF", "quantize_mode": "Llama-3.2-1B-Instruct.i1-IQ2_M.gguf"},
             {"repo_name": "mradermacher", "model_id": "Llama-3.2-1B-Instruct-i1-GGUF", "quantize_mode": "Llama-3.2-1B-Instruct.i1-IQ3_M.gguf"},
             {"repo_name": "mradermacher", "model_id": "Llama-3.2-1B-Instruct-i1-GGUF", "quantize_mode": "Llama-3.2-1B-Instruct.i1-Q4_K_M.gguf"},
@@ -18,13 +19,13 @@ class Config:
         # Models requiring a small GPU (up to ~10G)
         "small": [
             # General Llama-8B models
-            {"repo_name": "mradermacher", "model_id": "Meta-Llama-3.1-8B-Instruct-i1-GGUF", "quantize_mode": "Meta-Llama-3.1-8B-Instruct.i1-IQ1_M.gguf"},
+            # {"repo_name": "mradermacher", "model_id": "Meta-Llama-3.1-8B-Instruct-i1-GGUF", "quantize_mode": "Meta-Llama-3.1-8B-Instruct.i1-IQ1_M.gguf"},
             {"repo_name": "mradermacher", "model_id": "Meta-Llama-3.1-8B-Instruct-i1-GGUF", "quantize_mode": "Meta-Llama-3.1-8B-Instruct.i1-IQ2_M.gguf"},
             {"repo_name": "mradermacher", "model_id": "Meta-Llama-3.1-8B-Instruct-i1-GGUF", "quantize_mode": "Meta-Llama-3.1-8B-Instruct.i1-IQ3_M.gguf"},
             {"repo_name": "mradermacher", "model_id": "Meta-Llama-3.1-8B-Instruct-i1-GGUF", "quantize_mode": "Meta-Llama-3.1-8B-Instruct.i1-Q4_K_M.gguf"},
             
             # Specialized Llama-8B models
-            {"repo_name": "mradermacher", "model_id": "Bio-Medical-Llama-3.1-8B-i1-GGUF", "quantize_mode": "Bio-Medical-Llama-3.1-8B.i1-IQ1_M.gguf"},
+            # {"repo_name": "mradermacher", "model_id": "Bio-Medical-Llama-3.1-8B-i1-GGUF", "quantize_mode": "Bio-Medical-Llama-3.1-8B.i1-IQ1_M.gguf"},
             {"repo_name": "mradermacher", "model_id": "Bio-Medical-Llama-3.1-8B-i1-GGUF", "quantize_mode": "Bio-Medical-Llama-3.1-8B.i1-IQ2_M.gguf"},
             {"repo_name": "mradermacher", "model_id": "Bio-Medical-Llama-3.1-8B-i1-GGUF", "quantize_mode": "Bio-Medical-Llama-3.1-8B.i1-IQ3_M.gguf"},
             {"repo_name": "mradermacher", "model_id": "Bio-Medical-Llama-3.1-8B-i1-GGUF", "quantize_mode": "Bio-Medical-Llama-3.1-8B.i1-Q4_K_M.gguf"},
@@ -43,20 +44,20 @@ class Config:
         # Models requiring a big GPU (up to ~45G)
         "big": [
             # General Llama-70B models
-            {"repo_name": "mradermacher", "model_id": "Meta-Llama-3.1-70B-Instruct-i1-GGUF", "quantize_mode": "Meta-Llama-3.1-70B-Instruct.i1-IQ1_M.gguf"},
+            # {"repo_name": "mradermacher", "model_id": "Meta-Llama-3.1-70B-Instruct-i1-GGUF", "quantize_mode": "Meta-Llama-3.1-70B-Instruct.i1-IQ1_M.gguf"},
             {"repo_name": "mradermacher", "model_id": "Meta-Llama-3.1-70B-Instruct-i1-GGUF", "quantize_mode": "Meta-Llama-3.1-70B-Instruct.i1-IQ2_M.gguf"},
             {"repo_name": "mradermacher", "model_id": "Meta-Llama-3.1-70B-Instruct-i1-GGUF", "quantize_mode": "Meta-Llama-3.1-70B-Instruct.i1-IQ3_M.gguf"},
-            {"repo_name": "mradermacher", "model_id": "Meta-Llama-3.1-70B-Instruct-i1-GGUF", "quantize_mode": "Meta-Llama-3.1-70B-Instruct.i1-IQ4_XS.gguf"},
-            # {"repo_name": "mradermacher", "model_id": "Meta-Llama-3.1-70B-Instruct-i1-GGUF", "quantize_mode": "Meta-Llama-3.1-70B-Instruct.i1-Q4_K_S.gguf"},  # 40.4G /!\ -> maybe fast-attn makes it work?
-            # {"repo_name": "mradermacher", "model_id": "Meta-Llama-3.1-70B-Instruct-i1-GGUF", "quantize_mode": "Meta-Llama-3.1-70B-Instruct.i1-Q4_K_M.gguf"},  # 42.6G /!\ -> maybe fast-attn makes it work?
+            # {"repo_name": "mradermacher", "model_id": "Meta-Llama-3.1-70B-Instruct-i1-GGUF", "quantize_mode": "Meta-Llama-3.1-70B-Instruct.i1-IQ4_XS.gguf"},  # 38.0G ("largest below 40G")
+            # {"repo_name": "mradermacher", "model_id": "Meta-Llama-3.1-70B-Instruct-i1-GGUF", "quantize_mode": "Meta-Llama-3.1-70B-Instruct.i1-Q4_K_S.gguf"},  # 40.4G ("optimal")
+            {"repo_name": "mradermacher", "model_id": "Meta-Llama-3.1-70B-Instruct-i1-GGUF", "quantize_mode": "Meta-Llama-3.1-70B-Instruct.i1-Q4_K_M.gguf"},  # 42.6G ("recommended")
             
             # Specialized Llama-8B models
-            {"repo_name": "mradermacher", "model_id": "OpenBioLLM-Llama3-70B-i1-GGUF", "quantize_mode": "OpenBioLLM-Llama3-70B.i1-IQ1_M.gguf"},
+            # {"repo_name": "mradermacher", "model_id": "OpenBioLLM-Llama3-70B-i1-GGUF", "quantize_mode": "OpenBioLLM-Llama3-70B.i1-IQ1_M.gguf"},
             {"repo_name": "mradermacher", "model_id": "OpenBioLLM-Llama3-70B-i1-GGUF", "quantize_mode": "OpenBioLLM-Llama3-70B.i1-IQ2_M.gguf"},
             {"repo_name": "mradermacher", "model_id": "OpenBioLLM-Llama3-70B-i1-GGUF", "quantize_mode": "OpenBioLLM-Llama3-70B.i1-IQ3_M.gguf"},
-            {"repo_name": "mradermacher", "model_id": "OpenBioLLM-Llama3-70B-i1-GGUF", "quantize_mode": "OpenBioLLM-Llama3-70B.i1-IQ4_XS.gguf"},
-            # {"repo_name": "mradermacher", "model_id": "OpenBioLLM-Llama3-70B-i1-GGUF", "quantize_mode": "OpenBioLLM-Llama3-70B.i1-Q4_K_S.gguf"},  # 40.4G /!\ -> maybe fast-attn makes it work?
-            # {"repo_name": "mradermacher", "model_id": "OpenBioLLM-Llama3-70B-i1-GGUF", "quantize_mode": "OpenBioLLM-Llama3-70B.i1-Q4_K_M.gguf"},  # 42.6G /!\ -> maybe fast-attn makes it work?
+            # {"repo_name": "mradermacher", "model_id": "OpenBioLLM-Llama3-70B-i1-GGUF", "quantize_mode": "OpenBioLLM-Llama3-70B.i1-IQ4_XS.gguf"},  # 38.0G ("largest below 40G")
+            # {"repo_name": "mradermacher", "model_id": "OpenBioLLM-Llama3-70B-i1-GGUF", "quantize_mode": "OpenBioLLM-Llama3-70B.i1-Q4_K_S.gguf"},  # 40.4G ("optimal")
+            {"repo_name": "mradermacher", "model_id": "OpenBioLLM-Llama3-70B-i1-GGUF", "quantize_mode": "OpenBioLLM-Llama3-70B.i1-Q4_K_M.gguf"},  # 42.6G ("recommended")
         ],
         
         # INFERENCE CONSIDERATIONS

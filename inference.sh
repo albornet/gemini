@@ -34,14 +34,14 @@ set_variables() {
             # GPU_IDS="gpu023,gpu024,gpu036,gpu037,gpu038,gpu039,gpu040,gpu041,gpu042,gpu043"
             # TIME_LIMIT="0-10:00:00"
             GPU_IDS="gpu034,gpu035"
-            TIME_LIMIT="1-00:00:00"
+            TIME_LIMIT="1-12:00:00"
             NUM_GPUS_PER_TASK=1
             ;;
         "big")
             # GPU_IDS="gpu020,gpu022,gpu027,gpu028,gpu030,gpu031"
             # TIME_LIMIT="0-10:00:00"
             GPU_IDS="gpu034,gpu035"
-            TIME_LIMIT="4-00:00:00"
+            TIME_LIMIT="2-06:00:00"
             NUM_GPUS_PER_TASK=2
             ;;
         *)

@@ -84,7 +84,7 @@ def benchmark_one_model(
     bench_fn = partial(dataset.map, function=process_fn, batch_size=1, load_from_cache_file=False)
     times, memories, outputs = do_bench_custom(
         benchmarked_fn=bench_fn,
-        n_repeats=2 if cfg.DEBUG else 5,
+        n_repeats=2 if cfg.DEBUG else cfg.N_INFERENCE_REPEATS,
         return_outputs=True,
     )
     times = times / len(dataset)  # since we want time per sample
@@ -140,7 +140,6 @@ def create_inference_generator(
         n_gpu_layers=-1,
         n_ctx=cfg.MAX_CONTEXT_LENGTH,
         flash_attn=cfg.USE_FLASH_ATTENTION,
-        # logprobs=1,
         verbose=False,
     )
     
@@ -166,17 +165,12 @@ def process_sample(
     """
     # Prompt model and collect output
     messages = build_prompt(sample["input_text"])
-    outputs = inference_generator.create_chat_completion(messages)
+    outputs = inference_generator.create_chat_completion(messages, logprobs=1)
     
     # Extract text response, reasoning, and model prediction
     output_text = outputs["choices"][0]["message"]["content"]
     question_output = extract_reasoning_and_prediction(output_text)
     sample.update(question_output)
-    
-    # # Extract perplexity
-    # log_probs = [l[0] for l in outputs["choices"][0]["logprobs"]["token_logprobs"]]
-    # perplexity = torch.exp(-torch.tensor(log_probs).mean())
-    # sample.update({"perplexity": perplexity.item()})
     
     return sample
 

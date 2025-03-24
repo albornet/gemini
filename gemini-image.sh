@@ -1,8 +1,8 @@
 #!/bin/bash
 
 #SBATCH --job-name=singularity_build
-#SBATCH --partition=shared-gpu,private-teodoro-gpu
-#SBATCH --nodelist=gpu023,gpu024,gpu036,gpu037,gpu038,gpu039,gpu040,gpu041,gpu042,gpu043
+#SBATCH --partition=private-teodoro-gpu
+#SBATCH --nodelist=gpu034,gpu035
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --gpus-per-task=1

@@ -11,13 +11,10 @@ From: pytorch/pytorch:2.4.1-cuda12.4-cudnn9-devel
 
     # Pip installs requiring arguments
     CMAKE_ARGS="-DGGML_CUDA=on" pip install llama-cpp-python
-    # FORCE_CMAKE=1 CMAKE_ARGS="-DGGML_CUDA=on" pip install llama-cpp-python --no-cache-dir --force-reinstall --upgrade
-    # pip install flash-attn --no-build-isolation --upgrade
 
 %files
     # Copy requirements.txt into the container
     requirements.txt /app/
-    gemini-image_test.py /app/
 
 %labels
     Author alban.bornet@unige.ch

@@ -1,18 +1,24 @@
 import os
+import re
 import subprocess
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+import json
 import pickle
 from tqdm import tqdm
 from warnings import warn
-from typing import Any, Union, Callable
+from typing import Any, Callable
+from collections import Counter
+from sklearn.metrics import confusion_matrix
 from transformers import AutoTokenizer
+from datasets import Dataset
 from huggingface_hub import list_repo_files, hf_hub_download, HfApi
 
 
 def do_bench(
     bench_fn: Callable,
+    model_path: str,
     n_repeats: int=10,
     return_outputs: bool=False,
 ) -> tuple[torch.Tensor, torch.Tensor, list[Any]|None]:
@@ -23,9 +29,7 @@ def do_bench(
         bench_fn: function to benchmark
         n_repeats: number of repetitions for benchmark
         return_outputs: if True, return outputs of the benchmarked function
-    """
-    assert n_repeats > 1, "n_repeats must be greater than 1"
-    
+    """    
     # Initialize events, results storage, and outputs (if required)
     start_event = torch.cuda.Event(enable_timing=True)
     end_event = torch.cuda.Event(enable_timing=True)
@@ -34,7 +38,7 @@ def do_bench(
     outputs = [] if return_outputs else None
     
     # Benchmark loop
-    for i in tqdm(range(n_repeats), desc="Benchmarking inference model"):
+    for i in tqdm(range(n_repeats), desc=f"Benchmarking {model_path}"):
 
         # Clear L2 cache and reset peak memory stats
         torch.cuda.empty_cache()
@@ -54,7 +58,378 @@ def do_bench(
         if return_outputs:
             outputs.append(output)
     
-    return times, memories, outputs
+    return outputs, times, memories
+
+
+def extract_preds_and_labels(dataset: Dataset):
+    """ Extract a set of model predictions and output labels for different runs
+        to a list of datasets with labels and predictions
+    """
+    num_models = sum(["prediction_" in f for f in dataset.features])
+    preds_and_labels = [{"label": dataset["label"]} for _ in range(num_models)]
+    for feature in dataset.features:
+        if "prediction_" in feature:
+            original_feature_name, index = feature.split("_")
+            preds_and_labels[int(index)][original_feature_name] = dataset[feature]
+
+    return [Dataset.from_dict(dataset) for dataset in preds_and_labels]
+
+
+def compute_and_save_metrics(
+    benchmark_results: dict,
+    model_path: str,
+    output_path: str,
+) -> dict:
+    """ Compute metrics for one set of model predictions and labels
+    """
+    # Write inputs and corresponding raw model outputs to a csv file
+    dataset: Dataset = benchmark_results.pop("dataset")
+    os.makedirs(os.path.split(output_path)[0], exist_ok=True)
+    dataset.to_csv(output_path, index=False)
+    print(f"Saved raw results at {output_path}")
+
+    # Pool model predictions and plot confusion matrices for both pooling strategies
+    preds_and_labels = extract_preds_and_labels(dataset)
+    y_true_all, y_pred_all = pool_model_predictions(preds_and_labels, "concatenation")
+    y_true_single, y_pred_single = pool_model_predictions(preds_and_labels, "single")
+    y_true_maj_3, y_pred_maj_3 = pool_model_predictions(preds_and_labels, "single", num_models=3)
+    y_true_maj_5, y_pred_maj_5 = pool_model_predictions(preds_and_labels, "majority", num_models=5)
+    y_true_maj_10, y_pred_maj_10 = pool_model_predictions(preds_and_labels, "majority", num_models=10)
+
+    # Basic model characteristics
+    num_params = get_model_number_of_parameters(model_path)
+    bits_per_param = get_model_bits_per_parameter(model_path, output_path)
+    total_bits = num_params * bits_per_param
+    params_weight = total_bits / (8 * 1024**3)
+
+    # Record performance and efficiency metrics
+    metric_dict = {
+
+        # True labels for different voting strategies
+        "y_true": {
+            "all": y_true_all, "single": y_true_single,
+            "maj_3": y_true_maj_3, "maj_5": y_true_maj_5, "maj_10": y_true_maj_10,
+        },
+
+        # Predicted labels for different voting strategies
+        "y_pred": {
+            "all": y_pred_all, "single": y_pred_single,
+            "maj_3": y_pred_maj_3, "maj_5": y_pred_maj_5, "maj_10": y_pred_maj_10,
+        },
+
+        # How often the model had it wrong, on average
+        f"Error Rate\n(all {len(preds_and_labels)} models)": {
+            "values": torch.tensor([np.mean(np.array(o["prediction"]) != o["label"]) for o in preds_and_labels]),
+            "unit": "%", "max_y": 1.0, "loc": (1, 1), "color": "tab:red",
+        },
+        "Error Rate\n(single model)": {
+            "values": np.mean(y_true_single != y_pred_single, keepdims=True),
+            "unit": "%", "max_y": 1.0, "loc": (2, 1), "color": "tab:red",
+        },
+        "Error Rate\n(maj-pooling-3)": {
+            "values": np.mean(y_true_maj_3 != y_pred_maj_3, keepdims=True),
+            "unit": "%", "max_y": 1.0, "loc": (3, 1), "color": "tab:red",
+        },
+        "Error Rate\n(maj-pooling-5)": {
+            "values": np.mean(y_true_maj_5 != y_pred_maj_5, keepdims=True),
+            "unit": "%", "max_y": 1.0, "loc": (4, 1), "color": "tab:red",
+        },
+        "Error Rate\n(maj-pooling-10)": {
+            "values": np.mean(y_true_maj_10 != y_pred_maj_10, keepdims=True),
+            "unit": "%", "max_y": 1.0, "loc": (5, 1), "color": "tab:red",
+        },
+
+        # How far from the correct label the model was, on average
+        f"Distance\n(all {len(preds_and_labels)} models)": {
+            "values": [np.mean(np.abs(np.array(o["prediction"]) - o["label"])) for o in preds_and_labels],
+            "unit": "mRS", "max_y": 10.0, "loc": (1, 2), "color": "tab:orange",
+        },
+        "Distance\n(single model)": {
+            "values": np.mean(np.abs(y_true_single - y_pred_single), keepdims=True),
+            "unit": "mRS", "max_y": 10.0, "loc": (2, 2), "color": "tab:orange",
+        },
+        "Distance\n(maj-pooling-3)": {
+            "values": np.mean(np.abs(y_true_maj_3 - y_pred_maj_3), keepdims=True),
+            "unit": "mRS", "max_y": 10.0, "loc": (3, 2), "color": "tab:orange",
+        },
+        "Distance\n(maj-pooling-5)": {
+            "values": np.mean(np.abs(y_true_maj_5 - y_pred_maj_5), keepdims=True),
+            "unit": "mRS", "max_y": 10.0, "loc": (4, 2), "color": "tab:orange",
+        },
+        "Distance\n(maj-pooling-10)": {
+            "values": np.mean(np.abs(y_true_maj_10 - y_pred_maj_10), keepdims=True),
+            "unit": "mRS", "max_y": 10.0, "loc": (5, 2), "color": "tab:orange",
+        },
+        
+        # Infrastructure metrics
+        "Number of params": {
+            "values": np.array([num_params / 10**9]),
+            "unit": "Billions", "max_y": 75, "loc": (0, 0), "color": "tab:gray",
+        },
+        "Bits/param": {
+            "values": np.array([bits_per_param]),
+            "unit": "Bits", "max_y": 16, "loc": (0, 1), "color": "tab:brown",
+        },
+        "VRAM param usage": {
+            # "values": benchmark_results["memories"],
+            "values": np.array([params_weight]),
+            "unit": "GB", "max_y": 60.0, "loc": (0, 2), "color": "tab:blue",
+        },
+        "Time/sample": {
+            "values": benchmark_results["times"],
+            "unit": "s", "max_y": 100.0, "loc": (0, 3), "color": "tab:green",
+        },
+
+    }
+
+    # Save plotted data to a handy json file (for later pooled figures)
+    metric_dict = convert_to_json_serializable(metric_dict)
+    json_path = output_path.replace(".csv", ".json")
+    with open(json_path, "w") as f:
+        json.dump(metric_dict, f, indent=4)
+        print(f"Saved metrics summary at {json_path}")
+
+    return metric_dict
+
+
+def plot_metrics(metric_path: str) -> None:
+    """ Plot metrics in a common plot for different prediction voting strategies
+    """
+    # Subplots (one row with 4 small columns, 5 rows with 1 large and 2 small columns)
+    fig = plt.figure(figsize=(7, 20))
+    gs = fig.add_gridspec(
+        nrows=6, ncols=4,
+        width_ratios=[1, 1, 1, 1],
+        height_ratios=[1, 1, 1, 1, 1, 1],
+    )
+    ax = []
+    for row_idx in range(6):
+        if row_idx == 0:
+            ax.append((
+                fig.add_subplot(gs[row_idx, 0]), fig.add_subplot(gs[row_idx, 1]),
+                fig.add_subplot(gs[row_idx, 2]), fig.add_subplot(gs[row_idx, 3]),
+            ))
+        else:
+            ax.append((
+                fig.add_subplot(gs[row_idx, 0:2]),
+                fig.add_subplot(gs[row_idx, 2]), fig.add_subplot(gs[row_idx, 3]),
+            ))
+    
+    # Load data to plot
+    with open(metric_path, "r") as f:
+        metric_dict: dict = json.load(f)
+    y_true = metric_dict.pop("y_true")
+    y_pred = metric_dict.pop("y_pred")
+    
+    # Plot all confusion matrices
+    plot_cm(ax=ax[1][0], y_true=y_true["all"], y_pred=y_pred["all"], title_flag=f"all models")
+    plot_cm(ax=ax[2][0], y_true=y_true["single"], y_pred=y_pred["single"], title_flag="single model")
+    plot_cm(ax=ax[3][0], y_true=y_true["maj_3"], y_pred=y_pred["maj_3"], title_flag="maj-pooling-3")
+    plot_cm(ax=ax[4][0], y_true=y_true["maj_5"], y_pred=y_pred["maj_5"], title_flag="maj-pooling-5")
+    plot_cm(ax=ax[5][0], y_true=y_true["maj_10"], y_pred=y_pred["maj_10"], title_flag="maj-pooling-10")
+
+    # Plot each metric in a separate subplot
+    for metric_name, plot_dict in metric_dict.items():
+
+        # Compute mean values
+        plot_values = plot_dict["values"]
+        mean = np.mean(plot_values)
+
+        # Compute standard error of the mean for error bar (if enough samples)
+        bar_kwargs = {"capsize": 5, "alpha": 0.75, "color": plot_dict["color"]}
+        if len(plot_values) > 1:
+            bar_kwargs["yerr"] = np.std(plot_values, ddof=1) / np.sqrt(len(plot_values))
+        else:
+            bar_kwargs["yerr"] = None
+        
+        # Plot the bar, with or without error bar
+        i, j = plot_dict["loc"]
+        ax[i][j].bar(0, mean, **bar_kwargs)
+        ax[i][j].set_xticks([])
+        ax[i][j].set_ylim([0.0, plot_dict["max_y"]])
+        ax[i][j].set_ylabel(f"[{plot_dict['unit']}]")
+        ax[i][j].set_title(metric_name.split("\n")[0])
+
+    # Adjust layout and save plot
+    plot_path = metric_path.replace(".json", ".png")
+    plt.tight_layout()
+    plt.savefig(plot_path, dpi=300)
+    plt.close()
+    print(f"Saved processed result plot at {plot_path}")
+
+
+def convert_to_json_serializable(obj):
+    """ Recursively converts arrays and tensors in a dictionary to lists
+    """
+    # Dict case is made to go deeper
+    if isinstance(obj, dict):
+        return {k: convert_to_json_serializable(v) for k, v in obj.items()}
+    
+    # Types to convert to numbers (arrays, tensors)
+    elif isinstance(obj, (np.ndarray, torch.Tensor)):
+        return obj.tolist()
+    elif isinstance(obj, tuple): # JSON doesn't have tuples, convert to list
+        return list(obj)
+    
+    return obj
+
+
+def pool_model_predictions(
+    preds_and_labels: list[Dataset],
+    pred_pool_mode: str,
+    num_models: int|None=None,
+) -> tuple[np.ndarray]:
+    """ Pool the predictions of several models on the same set of samples, given
+        the pooling method
+    """
+    # Select only a fraction of the models, if required
+    if num_models is not None and num_models > 0:
+        preds_and_labels = preds_and_labels[:num_models]
+    
+    # Single model prediction (taking only the first one)
+    if pred_pool_mode == "single":
+        y_true_pooled = preds_and_labels[0]["label"]
+        y_pred_pooled = preds_and_labels[0]["prediction"]
+
+    # Pool model predictions by concatenating them (hence, sum in the confusion matrix)
+    elif pred_pool_mode == "concatenation":
+        y_true_pooled = sum([o["label"] for o in preds_and_labels], [])
+        y_pred_pooled = sum([o["prediction"] for o in preds_and_labels], [])
+
+    # Pool model predictions by taking the vote of the majority
+    elif pred_pool_mode == "majority":
+        y_true_pooled = preds_and_labels[0]["label"]
+        y_pred_pooled = []
+        num_samples = preds_and_labels[0].num_rows
+        preds_by_model = [dataset["prediction"] for dataset in preds_and_labels]
+        for i in range(num_samples):
+            votes = [preds[i] for preds in preds_by_model]
+            y_pred_pooled.append(Counter(votes).most_common(1)[0][0])
+    
+    # Unexpected pred_pool_mode value
+    else:
+        raise ValueError("Invalid pooling mode (single, concatenation, majority)")
+
+    return np.array(y_true_pooled), np.array(y_pred_pooled)
+
+
+def plot_cm(
+    ax: plt.Axes,
+    y_true: torch.Tensor,
+    y_pred: torch.Tensor,
+    title_flag: str,
+    possible_labels: list[Any]=[-1, 0, 1, 2, 3, 4, 5, 6],  # mRS in this case
+) -> None:
+    """ Plot a confusion matrix given model prediction and true label values
+    """
+    # Plot pooled confusion matrix
+    cm = confusion_matrix(y_true, y_pred, labels=possible_labels)
+    ax.imshow(cm, cmap="Blues", interpolation="none")
+    ax.set_xticks(range(len(possible_labels)))
+    ax.set_yticks(range(len(possible_labels)))
+    ax.set_xticklabels(possible_labels)
+    ax.set_yticklabels(possible_labels)
+    ax.set_xlabel("Predicted mRS")
+    ax.set_ylabel("True mRS")
+    ax.set_title(f"Confusion Matrix ({title_flag})")
+    
+    # Polish confusion matrix
+    max_cm_value = np.max(cm)
+    for i in range(len(cm)):
+        for j in range(len(cm[0])):
+            value = cm[i, j]
+            if value > 0:
+                color = "white" if value > max_cm_value / 2 else "black"
+                ax.text(j, i, str(value), ha="center", va="center", color=color)
+
+
+def print_gpu_info():
+    """ Print information about available GPU(s)
+    """
+    try:
+        result = subprocess.run(["nvidia-smi"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        print("GPU Information:\n")
+        print(result.stdout)
+    except FileNotFoundError:
+        print("nvidia-smi not found. Ensure NVIDIA drivers are installed and accessible.")
+
+
+def get_tokenizer_name(
+    model_id: str,
+    chat_template_required: bool=True,
+) -> str:
+    """ Identify base model from which any model was quantized, in order to load
+        the correct tokenizer
+    """
+    # Look for base model in the "cardData" (where model tree info is stored)
+    api = HfApi()
+    model_info = api.model_info(model_id)
+    card_data = model_info.card_data or {}
+    tokenizer_name = card_data.get("base_model")
+    
+    # Alternatively, inspect tags or siblings
+    if not tokenizer_name:
+        for tag in model_info.tags:
+            if "base_model:" in tag:
+                tokenizer_name = tag.split(":")[1]
+                break
+    
+    # Check for chat template, may fall back on Llama-3.2-3B-Instruct (most common)
+    if chat_template_required and tokenizer_name:
+        try:
+            tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
+            if tokenizer.chat_template is None:
+                raise ValueError("chat_template missing")
+        except Exception as e:
+            warn(
+                f"The tokenizer '{tokenizer_name}' does not support chat templating "
+                f"(reason: {e}). Falling back to 'meta-llama/Llama-3.2-3B-Instruct'."
+            )
+            tokenizer_name = "meta-llama/Llama-3.2-3B-Instruct"
+
+    return tokenizer_name
+
+
+def get_model_number_of_parameters(model_id: str) -> int:
+    """ Get the number of parameters in a huggingface model, using various methods
+    """
+    # Load model info from the huggingface API
+    api = HfApi()
+    model_info = api.model_info(model_id)
+
+    # Try to identify the number of parameters assuming the model is a gguf file
+    try:
+        return model_info.gguf["total"]
+    except Exception:
+        print("Could not identify number of parameters using the gguf method")
+        pass
+
+    # Try to identify the number of parameters with a more classic method
+    try:
+        return model_info.safetensors.total
+    except:
+        print("Could not identify number of parameters using the hugginface method")
+        return 0
+
+
+def get_model_bits_per_parameter(
+    model_path: str,
+    output_path: str,
+) -> int:
+    """ Get the number of parameters using heuristics from my own file-naming system
+    """
+    # Identify quantization scheme
+    scheme = output_path.split(model_path)[-1].strip("-").split(".")[0]
+    scheme_check = output_path.split("-")[-1].split(".")[0]
+    assert scheme == scheme_check
+
+    # Try to identify the number of bits with my own heuristics
+    if scheme == "no_quant_scheme": return 4  # for awq, etc.
+    match = re.search(r"^(?:I?Q)(\d+)", scheme)
+    if match: return int(match.group(1))
+    if scheme.lower() in ["f16", "fp16"]: return 16
+    if scheme.lower() == "q8_0": return 8
+    return 0
 
 
 def get_gpu_memory_usage_by_pid():
@@ -80,120 +455,46 @@ def get_gpu_memory_usage_by_pid():
     return GB_used_by_pid
 
 
-def record_metrics(
-    output_path: str,  # without extension
-    metrics: dict[str, Union[torch.Tensor, np.ndarray]]|None,
-) -> None:
-    """ Record metrics (or load them) and plot them to a nice figure
-    """
-    # Record metrics as a pickle file or load them from a previous run
-    result_path = output_path.replace("_raw.csv", "_metrics.pkl")
-    if metrics is not None:
-        with open(result_path, "wb") as f: pickle.dump(metrics, f)
-    else:
-        with open(result_path, "rb") as f: metrics = pickle.load(f)
-    confusion_matrix = metrics.pop("Confusion Matrix")
-
-    # Determine the number of subplots
-    num_metrics = len(metrics)
-    _, ax = plt.subplots(
-        nrows=1,
-        ncols=num_metrics + 1,  # "+ 1" for the confusion matrix
-        figsize=(12, 5),
-        width_ratios=[0.5] + [0.5 / num_metrics for _ in range(num_metrics)],
-    )
-
-    # Plot confusion matrix
-    labels = range(-1, len(confusion_matrix) - 1)  # [-1, 0, 1, 2, 3, 4, 5, 6]
-    ax[0].imshow(confusion_matrix, cmap="Blues", interpolation="none")
-    ax[0].set_xticks(range(len(labels)))
-    ax[0].set_yticks(range(len(labels)))
-    ax[0].set_xticklabels(labels)
-    ax[0].set_yticklabels(labels)
-    ax[0].set_xlabel("Predicted mRS")
-    ax[0].set_ylabel("True mRS")
-    ax[0].set_title("Confusion Matrix")
-    
-    # Polish confusion matrix
-    max_cm_value = np.max(confusion_matrix)
-    for i in range(len(confusion_matrix)):
-        for j in range(len(confusion_matrix[0])):
-            value = confusion_matrix[i, j]
-            if value > 0:
-                color = "white" if value > max_cm_value / 2 else "black"
-                ax[0].text(j, i, str(value), ha="center", va="center", color=color)
-            
-    # Plot each metric in a separate subplot
-    colors = ["tab:blue", "tab:orange", "tab:green", "tab:red", "tab:purple"] * 10
-    for i, (metric_name, metric_dict) in enumerate(metrics.items()):
-        mean = metric_dict["values"].mean().item()
-        sem = metric_dict["values"].std(unbiased=True).item() / len(metric_dict["values"])
-        ax[i + 1].bar(0, mean, yerr=sem, capsize=5, alpha=0.75, color=colors[i])
-        ax[i + 1].set_xticks([])
-        ax[i + 1].set_ylim([0.0, metric_dict["max_y"]])
-        ax[i + 1].set_ylabel("[%s]" % metric_dict["unit"])
-        ax[i + 1].set_title(metric_name)
-    
-    # Adjust layout and save plot
-    plot_path = result_path.replace(".pkl", ".png")
-    plt.tight_layout()
-    plt.savefig(plot_path, dpi=300)
-    plt.close()
-
-
-def print_gpu_info():
-    """ Print information about available GPU(s)
-    """
-    try:
-        result = subprocess.run(["nvidia-smi"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        print("GPU Information:\n")
-        print(result.stdout)
-    except FileNotFoundError:
-        print("nvidia-smi not found. Ensure NVIDIA drivers are installed and accessible.")
-
-
-def get_tokenizer_name(
-    model_id: str,
-    chat_template_required: bool=True,
-) -> str:
-    """ Identify base model from which any model was quantized, in order to load
-        the correct tokenizer
-    """
-    # Look for base model in the "cardData" (where model tree info is stored)
-    api = HfApi()
-    info = api.model_info(model_id)
-    card_data = info.card_data or {}
-    tokenizer_name = card_data.get("base_model")
-    
-    # Alternatively, inspect tags or siblings
-    if not tokenizer_name:
-        for tag in info.tags:
-            if "base_model:" in tag:
-                tokenizer_name = tag.split(":")[1]
-                break
-    
-    # Check for chat template, may fall back on Llama-3.2-3B-Instruct (most common)
-    if chat_template_required and tokenizer_name:
-        try:
-            tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
-            if tokenizer.chat_template is None:
-                raise ValueError("chat_template missing")
-        except Exception as e:
-            warn(
-                f"The tokenizer '{tokenizer_name}' does not support chat templating "
-                f"(reason: {e}). Falling back to 'meta-llama/Llama-3.2-3B-Instruct'."
-            )
-            tokenizer_name = "meta-llama/Llama-3.2-3B-Instruct"
-
-    return tokenizer_name
-
-
-def download_gguf_by_quant(model_id: str, quant: str) -> str:
+def download_gguf_by_quant(model_id: str, quant_scheme: str) -> str:
     """ Download the first matching GGUF file in a model repository
     """
+    quant_scheme_lower = quant_scheme.lower()
     files = list_repo_files(model_id)
     for file in files:
-        if file.endswith(".gguf") and quant in file:
+        file_lower = file.lower()
+        if file_lower.endswith(".gguf") and quant_scheme_lower in file_lower:
             return hf_hub_download(repo_id=model_id, filename=file)
         
-    raise FileNotFoundError(f"No GGUF file found with quantization scheme '{quant}' in repo '{model_id}'")
+    raise FileNotFoundError(f"No GGUF file found with quantization scheme '{quant_scheme}' in repo '{model_id}'")
+
+
+# ##########################################################################################
+# # DEBUG FUNCTIONS I USED AFTER I LOST DATA BY DELETING CACHES NOW ITS OK IT CANNOT BE LOST
+# ##########################################################################################
+
+# import shutil
+# def load_pickled_results(result_path):
+#     try:
+#         with open(result_path, "rb") as f: return pickle.load(f)
+#     except FileNotFoundError as e:
+#         problem_path = str(e).split("Failed to open local file '")[-1].split("'. Detail:")[0]
+#         problem_dir = os.path.dirname(problem_path)
+#         os.makedirs(problem_dir, exist_ok=True)
+#         files = [f for f in os.listdir(problem_dir) if os.path.isfile(os.path.join(problem_dir, f))]
+#         if not files: raise FileNotFoundError(f"No dummy in {problem_dir} for {problem_path}")
+#         shutil.copy(os.path.join(problem_dir, files[0]), problem_path)
+#         return load_pickled_results(result_path)
+#     except Exception as e: raise e
+
+
+# def retreive_previous_results(output_path: str) -> dict:
+#     """ Compute metrics for one set of model predictions and labels
+#     """
+#     pickle_path = output_path.replace(".csv", ".pkl")
+#     metrics = load_pickled_results(pickle_path)  # this one has wrong datasets ("outputs")
+#     dataset = Dataset.from_csv(output_path)
+#     return {"dataset": dataset, "times": metrics["times"], "memories": metrics["memories"]}
+
+# ##########################################################################################
+# # DEBUG FUNCTIONS I USED AFTER I LOST DATA BY DELETING CACHES NOW ITS OK IT CANNOT BE LOST
+# ##########################################################################################

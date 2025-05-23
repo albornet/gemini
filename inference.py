@@ -1,9 +1,10 @@
 import os
 import re
-import gc
+import json
 import itertools
-import numpy as np
+import gc
 import torch
+import torch.distributed as torch_dist
 import torch.multiprocessing as torch_mp
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from llama_cpp import Llama
@@ -11,9 +12,11 @@ from vllm import LLM, SamplingParams
 from datasets import Dataset
 from functools import partial
 from tqdm import tqdm
-from sklearn.metrics import confusion_matrix
-from utils import do_bench, record_metrics, print_gpu_info, get_tokenizer_name, download_gguf_by_quant
-from config import Config as cfg, parse_script_args, build_prompts
+from utils import (
+    do_bench, compute_and_save_metrics, plot_metrics,
+    print_gpu_info, get_tokenizer_name, download_gguf_by_quant,
+)
+from config import Config as cfg, parse_script_args, build_prompts, get_output_guide
 
 script_args = parse_script_args()
 RUNTYPE = script_args.runtype.lower()
@@ -36,9 +39,9 @@ def main():
     print(f"Processing {RUNTYPE} models\n")
     for run_args in run_args_list:
         if DEBUG or PLOT_ONLY:
-            clean_benchmark_run(run_args)
+            record_one_benchmark(run_args)
         else:
-            process = torch_mp.Process(target=clean_benchmark_run, args=(run_args,))
+            process = torch_mp.Process(target=record_one_benchmark, args=(run_args,))
             process.start()  # spawn a new process for each benchmark run
             process.join()   # wait for the process to complete before continuing
 
@@ -46,45 +49,62 @@ def main():
     print("\nScript completed successfully!")
 
 
-def clean_benchmark_run(run_args: dict[str, str]) -> None:
-    """ Runs the benchmark for a single model in a separate process
+def record_one_benchmark(run_args: dict[str, str]) -> None:
+    """ Runs the benchmark for a single model and record metrics
     """
-    # Run benchmark
-    try:
-        model_path = run_args["model_path"]
-        output_dir = os.path.join(cfg.RESULT_DIR, cfg.INFERENCE_BACKEND)
-        output_path = os.path.join(output_dir, f"{model_path}_raw.csv")
-        if PLOT_ONLY:
-            print("Replotting data for %s" % model_path)
-            metrics = None  # flag metrics to be loaded from pickle file
-        else:
-            print_gpu_info()
-            print(f"Benchmarking {model_path} with {cfg.INFERENCE_BACKEND} backend")
-            model, tokenizer = get_model_and_tokenizer(**run_args)
-            metrics = benchmark_one_model(
-                model=model,
-                tokenizer=tokenizer,
-                output_path=output_path,
-            )
-            print("Benchmarked %s" % model_path)
-        record_metrics(output_path, metrics=metrics)
+    # Build unique output path given configuration
+    model_path = run_args["model_path"]
+    quant_scheme = run_args.get("quant_scheme", "no_quant_scheme")
+    output_subdir = cfg.INFERENCE_BACKEND
+    if cfg.VLLM_USE_OUTPUT_GUIDE: output_subdir = f"{output_subdir}_guided"
+    output_dir = os.path.join(cfg.RESULT_DIR, output_subdir)
+    output_path = os.path.join(output_dir, f"{model_path}-{quant_scheme}.csv")
     
-    # Skip invalid models
-    except AssertionError as e:
-        print("Model not eligible for current backend. Skipping to next one.")
+    # Do not the model if it's just for replotting the data
+    if PLOT_ONLY:
+        print("Replotting data for %s" % model_path)
+    
+    # Actual benchmark run
+    else:
+        print_gpu_info()
+        print(f"Benchmarking {model_path} with {cfg.INFERENCE_BACKEND} backend")
         
-    # Data cleaning part to free GPU memory
-    finally:
-        if "model" in locals(): del model
-        torch.cuda.synchronize()
-        torch.cuda.empty_cache()
-        gc.collect()
+        # Initialize model with the required backend
+        try:
+            model, tokenizer = get_model_and_tokenizer(**run_args)
+        except ValueError as e:
+            print(f"The following exception occurred: {e}. Skipping to next model.")
+            return None
         
+        # Record results obtained with the selected model
+        benchmark_results = benchmark_one_model(
+            model=model,
+            model_path=model_path,
+            tokenizer=tokenizer,
+        )
+        compute_and_save_metrics(
+            benchmark_results=benchmark_results,
+            model_path=model_path,
+            output_path=output_path,
+        )
+        print("Benchmarked %s" % model_path)
         
+    # Metrics are plotted by loading saved benchmark results
+    metric_path = output_path.replace(".csv", ".json")
+    plot_metrics(metric_path=metric_path)
+
+    # Clean memory for the next benchmark
+    if "model" in locals(): del model
+    if torch_dist.is_initialized(): torch_dist.destroy_process_group()
+    torch.cuda.synchronize()
+    torch.cuda.empty_cache()
+    gc.collect()
+
+
 def benchmark_one_model(
-    model: AutoModelForCausalLM,
+    model: AutoModelForCausalLM|LLM|Llama,
+    model_path: str,
     tokenizer: AutoTokenizer,
-    output_path: str,
 ) -> dict:
     """ Prompt a large language model with medical questions and computes
         metrics about computation time, GPU memory usage, and error rate
@@ -105,39 +125,27 @@ def benchmark_one_model(
     # Measure computation time and GPU memory usage
     bench_fn = lambda: process_samples(dataset, model, tokenizer)
     n_repeats = 2 if DEBUG else cfg.N_INFERENCE_REPEATS
-    times, memories, outputs = do_bench(bench_fn=bench_fn, n_repeats=n_repeats, return_outputs=True)
+    outputs, times, memories = do_bench(
+        bench_fn=bench_fn,
+        model_path=model_path,
+        n_repeats=n_repeats,
+        return_outputs=True,
+    )
     times = times / len(dataset)  # since we want time per sample
     
-    # Compute performance metrics
-    cm_fn = lambda d: confusion_matrix(d["label"], d["prediction"], labels=list(range(-1, 7)))
-    error_fn = lambda d: np.mean(np.array(d["prediction"]) != np.array(d["label"]))
-    distance_fn = lambda d: np.mean(np.abs(np.array(d["prediction"]) - np.array(d["label"])))
-    confusion_matrix_results = np.sum([cm_fn(o) for o in outputs], axis=0)
-    errors = torch.tensor([error_fn(o) for o in outputs], dtype=torch.float32)
-    distances = torch.tensor([distance_fn(o) for o in outputs], dtype=torch.float32)
-    
     # Combine all outputs and add them to the input dataset
-    for key in ["reasoning", "answer", "prediction"]:
+    for key in ["reasoning", "prediction"]:
         for i, output in enumerate(outputs):
             dataset = dataset.add_column(f"{key}_{i:03}", output[key])
-            
-    # Write raw results a csv file
-    os.makedirs(os.path.split(output_path)[0], exist_ok=True)
-    dataset.to_csv(output_path, index=False)
     
-    # Return computed metrics for plotting
-    return {
-        "Time per Sample": {"unit": "s", "max_y": 100.0, "values": times},
-        "Peak VRAM Usage": {"unit": "GB", "max_y": 60.0, "values": memories},
-        "Error Rate": {"unit": "%", "max_y": 1.0, "values": errors},
-        "Distance": {"unit": "mRS", "max_y": 2.0, "values": distances},
-        "Confusion Matrix": confusion_matrix_results,
-    }
-
+    # Return benchmark results for metric computation and plotting
+    return {"dataset": dataset, "times": times, "memories": memories}
+    
 
 def get_model_and_tokenizer(
     model_path: str,
     quant: str,
+    quant_scheme: str|None=None,
 ) -> tuple[AutoModelForCausalLM, AutoTokenizer]:
     """ Create an LLM-based inference generator for solving a task
     
@@ -153,12 +161,11 @@ def get_model_and_tokenizer(
             model_args = {
                 "trust_remote_code": True,
                 "max_model_len": cfg.MAX_CONTEXT_LENGTH,
-                "gpu_memory_utilization": 0.95,
             }
             if quant == "bnb":
                 raise ValueError(f"vLLM does not support format {quant}")
             elif quant == "gguf":
-                model_file_path = download_gguf_by_quant(model_path, cfg.GGUF_QUANT_SCHEME)
+                model_file_path = download_gguf_by_quant(model_path, quant_scheme)
                 tokenizer_path = get_tokenizer_name(model_path)
                 model_args.update({"model": model_file_path, "tokenizer": tokenizer_path})
             else:
@@ -171,7 +178,7 @@ def get_model_and_tokenizer(
                 raise ValueError(f"Llama-cpp does not support format {quant}")
             model = Llama.from_pretrained(
                 repo_id=model_path,
-                filename=f"*{cfg.GGUF_QUANT_SCHEME}*.gguf",
+                filename=f"*{quant_scheme}*.gguf",
                 n_gpu_layers=-1,
                 n_ctx=cfg.MAX_CONTEXT_LENGTH,
                 flash_attn=cfg.USE_FLASH_ATTENTION,
@@ -216,6 +223,7 @@ def process_samples(
                 max_tokens=cfg.MAX_GENERATED_TOKENS,
                 temperature=cfg.TEMPERATURE,
                 top_p=cfg.TOP_P,
+                guided_decoding=get_output_guide() if cfg.VLLM_USE_OUTPUT_GUIDE else None,
             )
             outputs = model.chat(dataset["messages"], sampling_params=sampling_params)
             output_texts = [output.outputs[0].text.strip() for output in outputs]
@@ -230,7 +238,7 @@ def process_samples(
                 )
                 output_text = response["choices"][0]["message"]["content"].strip()
                 output_texts.append(output_text)
-            
+                
         case "huggingface":
             for prompt in tqdm(dataset["prompt"], desc="Generating inferences"):
                 inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
@@ -255,31 +263,62 @@ def process_samples(
     return dataset
 
 
-def extract_reasoning_and_prediction(
-    llm_raw_output_text: str,
-) -> dict[str, str]:
-    """ Extract reasoning and answer from the raw output of an LLM
+def extract_reasoning_and_prediction(raw_output: str) -> dict:
+    """ Extract reasoning and mRS score from raw model output
     
-    Args:
-        raw_output_text (str): raw output from the LLM
+        Args:
+            raw_output_text (str): raw output from the LLM
 
-    Returns:
-        dict[str, str]: structured output from the LLM
+        Returns:
+            dict[str, str]: structured output from the LLM
     """
-    # Extract reasoning and text answer from raw output 
-    lines = llm_raw_output_text.split("\n")    
-    reasoning = "\n".join(lines[:-1])
-    answer = lines[-1].strip()
-    
-    # Extract prediction from text answer
-    pattern = re.compile(r'(?:mrs[:\s]*|\b)([0-6])\b', re.IGNORECASE)
-    match = pattern.search(answer)
-    prediction = int(match.group(1)) if match else -1  # -1 being "bad answer"
-    
-    return {"reasoning": reasoning, "answer": answer, "prediction": prediction}
+    # Try direct JSON parse
+    try:
+        formatted_output = json.loads(raw_output.strip())
+        return normalize_output_keys(formatted_output)
+    except json.JSONDecodeError:
+        print("Parsing LLM output failed, falling back to more lenient parsing")
+        pass
 
+    # Try extracting substring between first "{" and last "}"
+    try:
+        start = raw_output.index("{")
+        end = raw_output.rindex("}") + 1
+        json_candidate = raw_output[start:end]
+        formatted_output = json.loads(json_candidate)
+        return normalize_output_keys(formatted_output)
+    except (ValueError, json.JSONDecodeError):
+        print("Lenient parsing failed as well, falling back to regex matching")
+        pass  # continue to fallback 2
+
+    # Fallback on regex-based strategies
+    matches = list(re.finditer(r"mRS[\s:;-]{0,10}([0-6])\b", raw_output, re.IGNORECASE))
+    if matches:
+        mrs_score = int(matches[-1].group(1))  # last matching digit close to "mRS"
+    else:
+        all_scores = re.findall(r"\b[0-6]\b", raw_output)  # ast digit number
+        mrs_score = int(all_scores[-1]) if all_scores else -1
+    
+    formatted_output = {"reasoning": raw_output.strip(), "prediction": mrs_score}
+    return normalize_output_keys(formatted_output)
+
+
+def normalize_output_keys(output_dict: dict) -> dict:
+    """ Normalize formatted LLM output for mRS extraction
+    """
+    reasoning = ""  # indicating "no reasoning"
+    prediction = -1  # indicating "mRS not found"
+    for key, value in output_dict.items():
+        if key.lower() == "reasoning":
+            reasoning = value
+        if key.lower() == "mrs":
+            if -1 <= value <= 6:
+                prediction = value
+
+    return {"reasoning": reasoning, "prediction": prediction}
+    
 
 if __name__ == "__main__":
-    if not DEBUG: torch_mp.set_start_method("spawn", force=True)
+    if not DEBUG and not PLOT_ONLY: torch_mp.set_start_method("spawn", force=True)
     main()
     

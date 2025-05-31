@@ -3,14 +3,20 @@ From: pytorch/pytorch:2.4.1-cuda12.4-cudnn9-devel
 
 %post
     # Install basics
-    apt-get update && apt-get install -y build-essential cmake python3 python3-pip git
+    apt-get update && apt-get install -y build-essential cmake git python3 python3-pip curl ca-certificates
     ln -s /usr/bin/python3 /usr/bin/python
     
-    # Normal pip installs
-    pip install --no-cache-dir -r /app/requirements.txt --upgrade
+    # Install uv
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    
+    # Install all required packages
+    uv pip install -u vllm
 
-    # Pip installs requiring arguments
-    CMAKE_ARGS="-DGGML_CUDA=on" pip install llama-cpp-python
+    # For llama-cpp-python with CMAKE_ARGS
+    # uv add is equivalent to pip install, but handles environment variables slightly differently
+    # We need to ensure CMAKE_ARGS is set for the uv command.
+    # The --config-settings approach is generally more robust for uv/pip when dealing with build flags.
+    uv pip install --no-cache-dir llama-cpp-python --config-settings="cmake.args=-DGGML_CUDA=on"
 
 %files
     # Copy requirements.txt into the container
@@ -19,4 +25,4 @@ From: pytorch/pytorch:2.4.1-cuda12.4-cudnn9-devel
 %labels
     Author alban.bornet@unige.ch
     Version 0.1
-    Description "Llama-cpp-python container"
+    Description "Llama-cpp-python container with uv"

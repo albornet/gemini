@@ -163,7 +163,8 @@ cython_debug/
 
 # Custom
 *.csv
-data/raw_docxs/*
+logs/*
+data/raw/raw_docxs/*
 results/*
 results_*/*
-logs/*
+results_pooled/*

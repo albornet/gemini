@@ -5,15 +5,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import json
-import pickle
 from tqdm import tqdm
-from warnings import warn
 from typing import Any, Callable
 from collections import Counter
-from sklearn.metrics import confusion_matrix
-from transformers import AutoTokenizer
 from datasets import Dataset
-from huggingface_hub import list_repo_files, hf_hub_download, HfApi
+from huggingface_hub import HfApi
+from sklearn.metrics import confusion_matrix
 
 
 def do_bench(
@@ -59,20 +56,6 @@ def do_bench(
             outputs.append(output)
     
     return outputs, times, memories
-
-
-def extract_preds_and_labels(dataset: Dataset):
-    """ Extract a set of model predictions and output labels for different runs
-        to a list of datasets with labels and predictions
-    """
-    num_models = sum(["prediction_" in f for f in dataset.features])
-    preds_and_labels = [{"label": dataset["label"]} for _ in range(num_models)]
-    for feature in dataset.features:
-        if "prediction_" in feature:
-            original_feature_name, index = feature.split("_")
-            preds_and_labels[int(index)][original_feature_name] = dataset[feature]
-
-    return [Dataset.from_dict(dataset) for dataset in preds_and_labels]
 
 
 def compute_and_save_metrics(
@@ -192,6 +175,75 @@ def compute_and_save_metrics(
     return metric_dict
 
 
+def extract_preds_and_labels(dataset: Dataset):
+    """ Extract a set of model predictions and output labels for different runs
+        to a list of datasets with labels and predictions
+    """
+    num_models = sum(["prediction_" in f for f in dataset.features])
+    preds_and_labels = [{"label": dataset["label"]} for _ in range(num_models)]
+    for feature in dataset.features:
+        if "prediction_" in feature:
+            original_feature_name, index = feature.split("_")
+            preds_and_labels[int(index)][original_feature_name] = dataset[feature]
+
+    return [Dataset.from_dict(dataset) for dataset in preds_and_labels]
+
+
+def convert_to_json_serializable(obj):
+    """ Recursively converts arrays and tensors in a dictionary to lists
+    """
+    # Dict case is made to go deeper
+    if isinstance(obj, dict):
+        return {k: convert_to_json_serializable(v) for k, v in obj.items()}
+    
+    # Types to convert to numbers (arrays, tensors)
+    elif isinstance(obj, (np.ndarray, torch.Tensor)):
+        return obj.tolist()
+    elif isinstance(obj, tuple): # JSON doesn't have tuples, convert to list
+        return list(obj)
+    
+    return obj
+
+
+def pool_model_predictions(
+    preds_and_labels: list[Dataset],
+    pred_pool_mode: str,
+    num_models: int|None=None,
+) -> tuple[np.ndarray]:
+    """ Pool the predictions of several models on the same set of samples, given
+        the pooling method
+    """
+    # Select only a fraction of the models, if required
+    if num_models is not None and num_models > 0:
+        preds_and_labels = preds_and_labels[:num_models]
+    
+    # Single model prediction (taking only the first one)
+    if pred_pool_mode == "single":
+        y_true_pooled = preds_and_labels[0]["label"]
+        y_pred_pooled = preds_and_labels[0]["prediction"]
+
+    # Pool model predictions by concatenating them (hence, sum in the confusion matrix)
+    elif pred_pool_mode == "concatenation":
+        y_true_pooled = sum([o["label"] for o in preds_and_labels], [])
+        y_pred_pooled = sum([o["prediction"] for o in preds_and_labels], [])
+
+    # Pool model predictions by taking the vote of the majority
+    elif pred_pool_mode == "majority":
+        y_true_pooled = preds_and_labels[0]["label"]
+        y_pred_pooled = []
+        num_samples = preds_and_labels[0].num_rows
+        preds_by_model = [dataset["prediction"] for dataset in preds_and_labels]
+        for i in range(num_samples):
+            votes = [preds[i] for preds in preds_by_model]
+            y_pred_pooled.append(Counter(votes).most_common(1)[0][0])
+    
+    # Unexpected pred_pool_mode value
+    else:
+        raise ValueError("Invalid pooling mode (single, concatenation, majority)")
+
+    return np.array(y_true_pooled), np.array(y_pred_pooled)
+
+
 def plot_metrics(metric_path: str) -> None:
     """ Plot metrics in a common plot for different prediction voting strategies
     """
@@ -258,61 +310,6 @@ def plot_metrics(metric_path: str) -> None:
     print(f"Saved processed result plot at {plot_path}")
 
 
-def convert_to_json_serializable(obj):
-    """ Recursively converts arrays and tensors in a dictionary to lists
-    """
-    # Dict case is made to go deeper
-    if isinstance(obj, dict):
-        return {k: convert_to_json_serializable(v) for k, v in obj.items()}
-    
-    # Types to convert to numbers (arrays, tensors)
-    elif isinstance(obj, (np.ndarray, torch.Tensor)):
-        return obj.tolist()
-    elif isinstance(obj, tuple): # JSON doesn't have tuples, convert to list
-        return list(obj)
-    
-    return obj
-
-
-def pool_model_predictions(
-    preds_and_labels: list[Dataset],
-    pred_pool_mode: str,
-    num_models: int|None=None,
-) -> tuple[np.ndarray]:
-    """ Pool the predictions of several models on the same set of samples, given
-        the pooling method
-    """
-    # Select only a fraction of the models, if required
-    if num_models is not None and num_models > 0:
-        preds_and_labels = preds_and_labels[:num_models]
-    
-    # Single model prediction (taking only the first one)
-    if pred_pool_mode == "single":
-        y_true_pooled = preds_and_labels[0]["label"]
-        y_pred_pooled = preds_and_labels[0]["prediction"]
-
-    # Pool model predictions by concatenating them (hence, sum in the confusion matrix)
-    elif pred_pool_mode == "concatenation":
-        y_true_pooled = sum([o["label"] for o in preds_and_labels], [])
-        y_pred_pooled = sum([o["prediction"] for o in preds_and_labels], [])
-
-    # Pool model predictions by taking the vote of the majority
-    elif pred_pool_mode == "majority":
-        y_true_pooled = preds_and_labels[0]["label"]
-        y_pred_pooled = []
-        num_samples = preds_and_labels[0].num_rows
-        preds_by_model = [dataset["prediction"] for dataset in preds_and_labels]
-        for i in range(num_samples):
-            votes = [preds[i] for preds in preds_by_model]
-            y_pred_pooled.append(Counter(votes).most_common(1)[0][0])
-    
-    # Unexpected pred_pool_mode value
-    else:
-        raise ValueError("Invalid pooling mode (single, concatenation, majority)")
-
-    return np.array(y_true_pooled), np.array(y_pred_pooled)
-
-
 def plot_cm(
     ax: plt.Axes,
     y_true: torch.Tensor,
@@ -354,42 +351,6 @@ def print_gpu_info():
         print("nvidia-smi not found. Ensure NVIDIA drivers are installed and accessible.")
 
 
-def get_tokenizer_name(
-    model_id: str,
-    chat_template_required: bool=True,
-) -> str:
-    """ Identify base model from which any model was quantized, in order to load
-        the correct tokenizer
-    """
-    # Look for base model in the "cardData" (where model tree info is stored)
-    api = HfApi()
-    model_info = api.model_info(model_id)
-    card_data = model_info.card_data or {}
-    tokenizer_name = card_data.get("base_model")
-    
-    # Alternatively, inspect tags or siblings
-    if not tokenizer_name:
-        for tag in model_info.tags:
-            if "base_model:" in tag:
-                tokenizer_name = tag.split(":")[1]
-                break
-    
-    # Check for chat template, may fall back on Llama-3.2-3B-Instruct (most common)
-    if chat_template_required and tokenizer_name:
-        try:
-            tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
-            if tokenizer.chat_template is None:
-                raise ValueError("chat_template missing")
-        except Exception as e:
-            warn(
-                f"The tokenizer '{tokenizer_name}' does not support chat templating "
-                f"(reason: {e}). Falling back to 'meta-llama/Llama-3.2-3B-Instruct'."
-            )
-            tokenizer_name = "meta-llama/Llama-3.2-3B-Instruct"
-
-    return tokenizer_name
-
-
 def get_model_number_of_parameters(model_id: str) -> int:
     """ Get the number of parameters in a huggingface model, using various methods
     """
@@ -410,7 +371,7 @@ def get_model_number_of_parameters(model_id: str) -> int:
     except:
         print("Could not identify number of parameters using the hugginface method")
         return 0
-
+    
 
 def get_model_bits_per_parameter(
     model_path: str,
@@ -453,19 +414,6 @@ def get_gpu_memory_usage_by_pid():
     # Convert to GB and return
     GB_used_by_pid = MiB_used_by_pid * 1024 ** 2 / 1000 ** 3
     return GB_used_by_pid
-
-
-def download_gguf_by_quant(model_id: str, quant_scheme: str) -> str:
-    """ Download the first matching GGUF file in a model repository
-    """
-    quant_scheme_lower = quant_scheme.lower()
-    files = list_repo_files(model_id)
-    for file in files:
-        file_lower = file.lower()
-        if file_lower.endswith(".gguf") and quant_scheme_lower in file_lower:
-            return hf_hub_download(repo_id=model_id, filename=file)
-        
-    raise FileNotFoundError(f"No GGUF file found with quantization scheme '{quant_scheme}' in repo '{model_id}'")
 
 
 # ##########################################################################################

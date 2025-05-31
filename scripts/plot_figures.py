@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import statsmodels.formula.api as smf
 
 
+OUTPUT_DIR = "pooled_result"
 X_CONFIGS = {
     "vram": {"key": "VRAM param usage", "unit": "GB", "lim": None},
     "nparams": {"key": "Number of params", "unit": "Billion", "lim": None},
@@ -141,7 +142,9 @@ def fit_error_model_lme(
 
 
 if __name__ == "__main__":
-    llama_result_path_group = {
+
+    # Define all Llama-3 models
+    llama3_result_path_group = {
         "Llama-3.2-1B-Instruct": [
             "results/vllm_guided/MaziyarPanahi/Llama-3.2-1B-Instruct-GGUF-Q2_K.json",
             "results/vllm_guided/MaziyarPanahi/Llama-3.2-1B-Instruct-GGUF-Q3_K_M.json",
@@ -169,7 +172,8 @@ if __name__ == "__main__":
         ],
     }
 
-    qwen_result_path_group = {
+    # Define all Qwen-2.5 models
+    qwen25_result_path_group = {
         "Qwen2.5-0.5B-Instruct": [
             "results/vllm_guided/bartowski/Qwen2.5-0.5B-Instruct-GGUF-Q2_K.json",
             "results/vllm_guided/bartowski/Qwen2.5-0.5B-Instruct-GGUF-Q3_K_M.json",
@@ -215,9 +219,21 @@ if __name__ == "__main__":
         ],
     }
 
-    output_dir = "pooled_result"
-    generate_error_rate_plot(llama_result_path_group, plot_name="llama_pooled_results", output_dir=output_dir)
-    generate_error_rate_plot(qwen_result_path_group, plot_name="qwen_pooled_results", output_dir=output_dir)
-    llama_lme_results = fit_error_model_lme(pd.read_csv(os.path.join(output_dir, "llama_pooled_results.csv")))
-    qwen_lme_results = fit_error_model_lme(pd.read_csv(os.path.join(output_dir, "qwen_pooled_results.csv")))
-    import ipdb; ipdb.set_trace()
+    # Pool results 
+    generate_error_rate_plot(
+        llama3_result_path_group,
+        plot_name="llama3_pooled_results",
+        output_dir=OUTPUT_DIR,
+    )
+    generate_error_rate_plot(
+        qwen25_result_path_group,
+        plot_name="qwen25_pooled_results",
+        output_dir=OUTPUT_DIR,
+    )
+    
+    # Identify statistical patterns using linear mixed-effects models
+    output_path_llama3 = os.path.join(OUTPUT_DIR, "llama3_pooled_results.csv")
+    output_path_qwen25 = os.path.join(OUTPUT_DIR, "qwen25_pooled_results.csv")
+    llama3_lme_results = fit_error_model_lme(pd.read_csv(output_path_llama3))
+    qwen25_lme_results = fit_error_model_lme(pd.read_csv(output_path_qwen25))
+    import ipdb; ipdb.set_trace()  # to explore lme outputs

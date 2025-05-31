@@ -13,7 +13,7 @@ NUM_CPUS_PER_TASK=8
 SIF_FOLDER=/home/users/b/borneta/sif
 SIF_NAME=gemini-image.sif
 SIF_IMAGE=${SIF_FOLDER}/${SIF_NAME}
-SCRIPT=inference.py
+SCRIPT=script.run_benchmark
 
 # Run variables
 # RUN_TYPES=("very_small")
@@ -66,5 +66,5 @@ do
          --time=$TIME_LIMIT \
          --output=./results/logs/job_%j_${RUNTYPE}.txt \
          --error=./results/logs/job_%j_${RUNTYPE}.err \
-         --wrap="srun apptainer exec --nv ${SIF_IMAGE} python ${SCRIPT} --runtype=${RUNTYPE}"
+         --wrap="srun apptainer exec --nv ${SIF_IMAGE} python -m ${SCRIPT} --runtype=${RUNTYPE}"
 done

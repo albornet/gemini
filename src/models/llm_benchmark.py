@@ -102,7 +102,7 @@ def compute_and_save_metrics(
 
         # How often the model had it wrong, on average
         f"Error Rate\n(all {len(preds_and_labels)} models)": {
-            "values": torch.tensor([np.mean(np.array(o["prediction"]) != o["label"]) for o in preds_and_labels]),
+            "values": torch.tensor([np.mean(np.array(o["mRS"]) != o["label"]) for o in preds_and_labels]),
             "unit": "%", "max_y": 1.0, "loc": (1, 1), "color": "tab:red",
         },
         "Error Rate\n(single model)": {
@@ -124,7 +124,7 @@ def compute_and_save_metrics(
 
         # How far from the correct label the model was, on average
         f"Distance\n(all {len(preds_and_labels)} models)": {
-            "values": [np.mean(np.abs(np.array(o["prediction"]) - o["label"])) for o in preds_and_labels],
+            "values": [np.mean(np.abs(np.array(o["mRS"]) - o["label"])) for o in preds_and_labels],
             "unit": "mRS", "max_y": 10.0, "loc": (1, 2), "color": "tab:orange",
         },
         "Distance\n(single model)": {
@@ -179,10 +179,10 @@ def extract_preds_and_labels(dataset: Dataset):
     """ Extract a set of model predictions and output labels for different runs
         to a list of datasets with labels and predictions
     """
-    num_models = sum(["prediction_" in f for f in dataset.features])
+    num_models = sum(["mRS_" in f for f in dataset.features])
     preds_and_labels = [{"label": dataset["label"]} for _ in range(num_models)]
     for feature in dataset.features:
-        if "prediction_" in feature:
+        if "mRS_" in feature:
             original_feature_name, index = feature.split("_")
             preds_and_labels[int(index)][original_feature_name] = dataset[feature]
 
@@ -220,19 +220,19 @@ def pool_model_predictions(
     # Single model prediction (taking only the first one)
     if pred_pool_mode == "single":
         y_true_pooled = preds_and_labels[0]["label"]
-        y_pred_pooled = preds_and_labels[0]["prediction"]
+        y_pred_pooled = preds_and_labels[0]["mRS"]
 
     # Pool model predictions by concatenating them (hence, sum in the confusion matrix)
     elif pred_pool_mode == "concatenation":
         y_true_pooled = sum([o["label"] for o in preds_and_labels], [])
-        y_pred_pooled = sum([o["prediction"] for o in preds_and_labels], [])
+        y_pred_pooled = sum([o["mRS"] for o in preds_and_labels], [])
 
     # Pool model predictions by taking the vote of the majority
     elif pred_pool_mode == "majority":
         y_true_pooled = preds_and_labels[0]["label"]
         y_pred_pooled = []
         num_samples = preds_and_labels[0].num_rows
-        preds_by_model = [dataset["prediction"] for dataset in preds_and_labels]
+        preds_by_model = [dataset["mRS"] for dataset in preds_and_labels]
         for i in range(num_samples):
             votes = [preds[i] for preds in preds_by_model]
             y_pred_pooled.append(Counter(votes).most_common(1)[0][0])
@@ -414,35 +414,3 @@ def get_gpu_memory_usage_by_pid():
     # Convert to GB and return
     GB_used_by_pid = MiB_used_by_pid * 1024 ** 2 / 1000 ** 3
     return GB_used_by_pid
-
-
-# ##########################################################################################
-# # DEBUG FUNCTIONS I USED AFTER I LOST DATA BY DELETING CACHES NOW ITS OK IT CANNOT BE LOST
-# ##########################################################################################
-
-# import shutil
-# def load_pickled_results(result_path):
-#     try:
-#         with open(result_path, "rb") as f: return pickle.load(f)
-#     except FileNotFoundError as e:
-#         problem_path = str(e).split("Failed to open local file '")[-1].split("'. Detail:")[0]
-#         problem_dir = os.path.dirname(problem_path)
-#         os.makedirs(problem_dir, exist_ok=True)
-#         files = [f for f in os.listdir(problem_dir) if os.path.isfile(os.path.join(problem_dir, f))]
-#         if not files: raise FileNotFoundError(f"No dummy in {problem_dir} for {problem_path}")
-#         shutil.copy(os.path.join(problem_dir, files[0]), problem_path)
-#         return load_pickled_results(result_path)
-#     except Exception as e: raise e
-
-
-# def retreive_previous_results(output_path: str) -> dict:
-#     """ Compute metrics for one set of model predictions and labels
-#     """
-#     pickle_path = output_path.replace(".csv", ".pkl")
-#     metrics = load_pickled_results(pickle_path)  # this one has wrong datasets ("outputs")
-#     dataset = Dataset.from_csv(output_path)
-#     return {"dataset": dataset, "times": metrics["times"], "memories": metrics["memories"]}
-
-# ##########################################################################################
-# # DEBUG FUNCTIONS I USED AFTER I LOST DATA BY DELETING CACHES NOW ITS OK IT CANNOT BE LOST
-# ##########################################################################################

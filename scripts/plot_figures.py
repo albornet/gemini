@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import statsmodels.formula.api as smf
 
 
-OUTPUT_DIR = "pooled_result"
+OUTPUT_DIR = "results/pooled"
 X_CONFIGS = {
     "vram": {"key": "VRAM param usage", "unit": "GB", "lim": None},
     "nparams": {"key": "Number of params", "unit": "Billion", "lim": None},
@@ -143,34 +143,34 @@ def fit_error_model_lme(
 
 if __name__ == "__main__":
 
-    # Define all Llama-3 models
-    llama3_result_path_group = {
-        "Llama-3.2-1B-Instruct": [
-            "results/vllm_guided/MaziyarPanahi/Llama-3.2-1B-Instruct-GGUF-Q2_K.json",
-            "results/vllm_guided/MaziyarPanahi/Llama-3.2-1B-Instruct-GGUF-Q3_K_M.json",
-            "results/vllm_guided/MaziyarPanahi/Llama-3.2-1B-Instruct-GGUF-Q4_K_M.json",
-            "results/vllm_guided/MaziyarPanahi/Llama-3.2-1B-Instruct-GGUF-Q5_K_M.json",
-            "results/vllm_guided/MaziyarPanahi/Llama-3.2-1B-Instruct-GGUF-Q6_K.json",
-            "results/vllm_guided/MaziyarPanahi/Llama-3.2-1B-Instruct-GGUF-Q8_0.json",
-            "results/vllm_guided/MaziyarPanahi/Llama-3.2-1B-Instruct-GGUF-FP16.json",
-        ],
-        "Llama-3.2-3B-Instruct": [
-            "results/vllm_guided/MaziyarPanahi/Llama-3.2-3B-Instruct-GGUF-Q2_K.json",
-            "results/vllm_guided/MaziyarPanahi/Llama-3.2-3B-Instruct-GGUF-Q3_K_M.json",
-            "results/vllm_guided/MaziyarPanahi/Llama-3.2-3B-Instruct-GGUF-Q4_K_M.json",
-            "results/vllm_guided/MaziyarPanahi/Llama-3.2-3B-Instruct-GGUF-Q5_K_M.json",
-            "results/vllm_guided/MaziyarPanahi/Llama-3.2-3B-Instruct-GGUF-Q6_K.json",
-            "results/vllm_guided/MaziyarPanahi/Llama-3.2-3B-Instruct-GGUF-Q8_0.json",
-            "results/vllm_guided/MaziyarPanahi/Llama-3.2-3B-Instruct-GGUF-FP16.json",
-        ],
-        "Llama-3.1-8B-Instruct": [
-            "results/vllm_guided/mradermacher/Meta-Llama-3.1-8B-Instruct-i1-GGUF-Q2_K.json",
-            "results/vllm_guided/mradermacher/Meta-Llama-3.1-8B-Instruct-i1-GGUF-Q3_K_M.json",
-            "results/vllm_guided/mradermacher/Meta-Llama-3.1-8B-Instruct-i1-GGUF-Q4_K_M.json",
-            "results/vllm_guided/mradermacher/Meta-Llama-3.1-8B-Instruct-i1-GGUF-Q5_K_M.json",
-            "results/vllm_guided/mradermacher/Meta-Llama-3.1-8B-Instruct-i1-GGUF-Q6_K.json",
-        ],
-    }
+    # # Define all Llama-3 models
+    # llama3_result_path_group = {
+    #     "Llama-3.2-1B-Instruct": [
+    #         "results/vllm_guided/MaziyarPanahi/Llama-3.2-1B-Instruct-GGUF-Q2_K.json",
+    #         "results/vllm_guided/MaziyarPanahi/Llama-3.2-1B-Instruct-GGUF-Q3_K_M.json",
+    #         "results/vllm_guided/MaziyarPanahi/Llama-3.2-1B-Instruct-GGUF-Q4_K_M.json",
+    #         "results/vllm_guided/MaziyarPanahi/Llama-3.2-1B-Instruct-GGUF-Q5_K_M.json",
+    #         "results/vllm_guided/MaziyarPanahi/Llama-3.2-1B-Instruct-GGUF-Q6_K.json",
+    #         "results/vllm_guided/MaziyarPanahi/Llama-3.2-1B-Instruct-GGUF-Q8_0.json",
+    #         "results/vllm_guided/MaziyarPanahi/Llama-3.2-1B-Instruct-GGUF-FP16.json",
+    #     ],
+    #     "Llama-3.2-3B-Instruct": [
+    #         "results/vllm_guided/MaziyarPanahi/Llama-3.2-3B-Instruct-GGUF-Q2_K.json",
+    #         "results/vllm_guided/MaziyarPanahi/Llama-3.2-3B-Instruct-GGUF-Q3_K_M.json",
+    #         "results/vllm_guided/MaziyarPanahi/Llama-3.2-3B-Instruct-GGUF-Q4_K_M.json",
+    #         "results/vllm_guided/MaziyarPanahi/Llama-3.2-3B-Instruct-GGUF-Q5_K_M.json",
+    #         "results/vllm_guided/MaziyarPanahi/Llama-3.2-3B-Instruct-GGUF-Q6_K.json",
+    #         "results/vllm_guided/MaziyarPanahi/Llama-3.2-3B-Instruct-GGUF-Q8_0.json",
+    #         "results/vllm_guided/MaziyarPanahi/Llama-3.2-3B-Instruct-GGUF-FP16.json",
+    #     ],
+    #     "Llama-3.1-8B-Instruct": [
+    #         "results/vllm_guided/mradermacher/Meta-Llama-3.1-8B-Instruct-i1-GGUF-Q2_K.json",
+    #         "results/vllm_guided/mradermacher/Meta-Llama-3.1-8B-Instruct-i1-GGUF-Q3_K_M.json",
+    #         "results/vllm_guided/mradermacher/Meta-Llama-3.1-8B-Instruct-i1-GGUF-Q4_K_M.json",
+    #         "results/vllm_guided/mradermacher/Meta-Llama-3.1-8B-Instruct-i1-GGUF-Q5_K_M.json",
+    #         "results/vllm_guided/mradermacher/Meta-Llama-3.1-8B-Instruct-i1-GGUF-Q6_K.json",
+    #     ],
+    # }
 
     # Define all Qwen-2.5 models
     qwen25_result_path_group = {
@@ -204,27 +204,27 @@ if __name__ == "__main__":
             "results/vllm_guided/bartowski/Qwen2.5-3B-Instruct-GGUF-F16.json",
         ],
 
-        "Qwen2.5-7B-Instruct": [
-            "results/vllm_guided/bartowski/Qwen2.5-7B-Instruct-GGUF-Q2_K.json",
-            "results/vllm_guided/bartowski/Qwen2.5-7B-Instruct-GGUF-Q3_K_M.json",
-            "results/vllm_guided/bartowski/Qwen2.5-7B-Instruct-GGUF-Q4_K_M.json",
-            "results/vllm_guided/bartowski/Qwen2.5-7B-Instruct-GGUF-Q5_K_M.json",
-            "results/vllm_guided/bartowski/Qwen2.5-7B-Instruct-GGUF-Q6_K.json",
-            "results/vllm_guided/bartowski/Qwen2.5-7B-Instruct-GGUF-Q8_0.json",
-        ],
+        # "Qwen2.5-7B-Instruct": [
+        #     "results/vllm_guided/bartowski/Qwen2.5-7B-Instruct-GGUF-Q2_K.json",
+        #     "results/vllm_guided/bartowski/Qwen2.5-7B-Instruct-GGUF-Q3_K_M.json",
+        #     "results/vllm_guided/bartowski/Qwen2.5-7B-Instruct-GGUF-Q4_K_M.json",
+        #     "results/vllm_guided/bartowski/Qwen2.5-7B-Instruct-GGUF-Q5_K_M.json",
+        #     "results/vllm_guided/bartowski/Qwen2.5-7B-Instruct-GGUF-Q6_K.json",
+        #     "results/vllm_guided/bartowski/Qwen2.5-7B-Instruct-GGUF-Q8_0.json",
+        # ],
 
-        "Qwen2.5-14B-Instruct": [
-            "results/vllm_guided/bartowski/Qwen2.5-14B-Instruct-GGUF-Q2_K.json",
-            "results/vllm_guided/bartowski/Qwen2.5-14B-Instruct-GGUF-Q3_K_M.json",
-        ],
+        # "Qwen2.5-14B-Instruct": [
+        #     "results/vllm_guided/bartowski/Qwen2.5-14B-Instruct-GGUF-Q2_K.json",
+        #     "results/vllm_guided/bartowski/Qwen2.5-14B-Instruct-GGUF-Q3_K_M.json",
+        # ],
     }
 
     # Pool results 
-    generate_error_rate_plot(
-        llama3_result_path_group,
-        plot_name="llama3_pooled_results",
-        output_dir=OUTPUT_DIR,
-    )
+    # generate_error_rate_plot(
+    #     llama3_result_path_group,
+    #     plot_name="llama3_pooled_results",
+    #     output_dir=OUTPUT_DIR,
+    # )
     generate_error_rate_plot(
         qwen25_result_path_group,
         plot_name="qwen25_pooled_results",
@@ -232,8 +232,8 @@ if __name__ == "__main__":
     )
     
     # Identify statistical patterns using linear mixed-effects models
-    output_path_llama3 = os.path.join(OUTPUT_DIR, "llama3_pooled_results.csv")
+    # output_path_llama3 = os.path.join(OUTPUT_DIR, "llama3_pooled_results.csv")
     output_path_qwen25 = os.path.join(OUTPUT_DIR, "qwen25_pooled_results.csv")
-    llama3_lme_results = fit_error_model_lme(pd.read_csv(output_path_llama3))
+    # llama3_lme_results = fit_error_model_lme(pd.read_csv(output_path_llama3))
     qwen25_lme_results = fit_error_model_lme(pd.read_csv(output_path_qwen25))
     import ipdb; ipdb.set_trace()  # to explore lme outputs

@@ -1,11 +1,12 @@
 RESULT_DIR: "./results"
-DATASET_PATH: "./data/processed/dataset.csv"
+DATASET_PATH: ".data/data_2025/processed/dataset.csv"
 N_INFERENCE_REPEATS: 10  # number of times each inference is repeated for benchmark
-MAX_CONTEXT_LENGTH: 6144  # maximum tokens in a "lettre de sortie" is 6144
-MAX_GENERATED_TOKENS: 512
+MAX_CONTEXT_LENGTH: 16384  # note: maximum tokens in a "lettre de sortie" is 6144
+MAX_GENERATED_TOKENS: 1024
 TOP_P: 0.95
 TEMPERATURE: 0.80
 USE_FLASH_ATTENTION: True
-INFERENCE_BACKEND: "vllm"  # hf, vllm, llama-cpp
+INFERENCE_BACKEND: "hf"  # hf, vllm, llama-cpp
 USE_OUTPUT_GUIDE: True
 SKIP_TO_NEXT_MODEL_IF_ERROR: True
+DELETE_MODEL_CACHE_AFTER_RUN: True

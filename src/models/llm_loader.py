@@ -1,7 +1,7 @@
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from vllm import LLM
 from llama_cpp import Llama
-from huggingface_hub import list_repo_files, hf_hub_download, HfApi
+from huggingface_hub import list_repo_files, hf_hub_download, snapshot_download, HfApi
 from warnings import warn
 from src.utils.run_utils import load_config
 
@@ -20,13 +20,13 @@ def get_model_and_tokenizer(
         quant_method (str): model file format (normal, bitsandbytes, awq, tqdm, gguf, etc.)
     """
     tokenizer = None
-    match cfg.INFERENCE_BACKEND:
+    match cfg["INFERENCE_BACKEND"]:
         
         # Using vLLM backend
         case "vllm":
             model_args = {
                 "trust_remote_code": True,
-                "max_model_len": cfg.MAX_CONTEXT_LENGTH,
+                "max_model_len": cfg["MAX_CONTEXT_LENGTH"],
             }
             if quant_method == "bnb":
                 raise ValueError(f"vLLM does not support format {quant_method}")
@@ -37,6 +37,8 @@ def get_model_and_tokenizer(
             else:
                 model_args.update({"model": model_path, "quantization": quant_method})
             model = LLM(**model_args)
+            cache_path = model.llm_engine.model_config.model
+            # cache_path = model.llm_engine.model_config.served_model_name
         
         # Using Llama-cpp backend
         case "llama-cpp":
@@ -44,19 +46,22 @@ def get_model_and_tokenizer(
                 raise ValueError(f"Llama-cpp does not support format {quant_method}")
             model = Llama.from_pretrained(
                 repo_id=model_path,
-                filename=f"*{quant_scheme}*.gguf",
-                n_gpu_layers=-1,
-                n_ctx=cfg.MAX_CONTEXT_LENGTH,
-                flash_attn=cfg.USE_FLASH_ATTENTION,
+                filename=f"*{quant_scheme}.gguf",
+                n_gpu_layers=-1,  # 0 for not using GPU
+                n_ctx=cfg["MAX_CONTEXT_LENGTH"],
+                flash_attn=cfg["USE_FLASH_ATTENTION"],
                 verbose=False,
             )
+            cache_path = model._model.path_model
 
         # Using HuggingFace backend
         case "hf":
+            if quant_method == "gguf":
+                raise ValueError(f"Classic HugginFace loading doesn't support format {quant_method}")
             model = AutoModelForCausalLM.from_pretrained(
                 model_path,
                 device_map="auto",
-                attn_implementation="flash_attention_2" if cfg.USE_FLASH_ATTENTION else None,
+                attn_implementation="flash_attention_2" if cfg["USE_FLASH_ATTENTION"] else None,
                 trust_remote_code=True,
             )
             tokenizer = AutoTokenizer.from_pretrained(model_path, use_fast=True)
@@ -98,8 +103,6 @@ def get_tokenizer_name(
             tokenizer_name = "meta-llama/Llama-3.2-3B-Instruct"
 
     return tokenizer_name
-
-
 
 
 def download_gguf_by_quant(model_id: str, quant_scheme: str) -> str:

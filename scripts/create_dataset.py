@@ -29,7 +29,7 @@ def main(args):
         raw_data_path_with_letters=RAW_DATA_PATH_WITH_LETTERS,
         columns_to_keep=COLUMNS_TO_KEEP,
     )
-    
+
     # Save a key to an local environment file, once
     print("Generating encryption key...")
     generate_and_secure_key_in_local_env_file(
@@ -37,7 +37,7 @@ def main(args):
         env_file_path=args.local_env_file_path,
     )
 
-    # Set the encryption key as an environment variable
+    # Set the encryption key in a local environment file
     success = load_dotenv(args.local_env_file_path)
     if not success:
         print(
@@ -51,6 +51,13 @@ def main(args):
         data_to_encrypt=df,
         encrypted_file_path=ENCRYPTED_DATASET_PATH,
         encryption_key_var_name=args.encryption_key_var_name,
+    )
+
+    # Inform the user that the key should be sent to a remote server
+    print(
+        f"Encryption key stored in '{args.local_env_file_path}'. "
+        "Please securely transfer this file to your remote server"
+        ", then delete the local file."
     )
 
 

@@ -148,6 +148,14 @@ def load_remote_dotenv(
 
     Returns:
         bool: success of the environment variables loading operation
+    
+    Example:
+        success = load_remote_dotenv(
+            hostname="example.com",
+            username="user",
+            remote_env_path="/home/user/.env",
+            private_key_path="/path/to/private/key"
+        )
     """
     # Prepare authentication for client connection
     client = paramiko.SSHClient()

@@ -1,12 +1,10 @@
 from typing import Union
 from transformers import AutoTokenizer
-from src.utils.run_utils import load_config
-
-cfg = load_config()
 
 
 def build_prompt(
     sample: dict[str, str],
+    cfg: dict,
     tokenizer: AutoTokenizer=None,
 ) -> dict[str, Union[list, str]]:
     """ Takes in a data sample, builds Hugging Face style messages, and optionally
@@ -14,7 +12,8 @@ def build_prompt(
 
     Args:
         sample: dictionary containing the input text, expected as sample["input_text"]
-        tokenizer: instance applying the chat template
+        cfg: configuration dictionary containing prompt templates and context data
+        tokenizer (optional): instance applying the chat template, if required
 
     Returns:
         A dictionary containing:

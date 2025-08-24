@@ -101,32 +101,6 @@ def write_pandas_to_encrypted_file(
     print(f"Data encrypted and saved to {encrypted_file_path}")
 
 
-def read_pandas_from_encrypted_file(
-    encrypted_file_path: str,
-    encryption_key_var_name: str,
-) -> pd.DataFrame:
-    """
-    Reads and decrypts a file into a pandas DataFrame.
-
-    Args:
-        encrypted_file_path: path to the encrypted file.
-        encryption_key_var_name: name of the environment variable holding the key
-
-    Returns:
-        A pandas DataFrame with the decrypted data.
-    """
-    key = get_key(encryption_key_var_name)
-    f = Fernet(key)
-
-    with open(encrypted_file_path, "rb") as encrypted_file:
-        encrypted_data = encrypted_file.read()
-
-    decrypted_data = f.decrypt(encrypted_data)
-    df = pd.read_csv(BytesIO(decrypted_data))
-
-    return df
-
-
 def load_remote_dotenv(
     hostname: str,
     username: str,
@@ -148,14 +122,6 @@ def load_remote_dotenv(
 
     Returns:
         bool: success of the environment variables loading operation
-    
-    Example:
-        success = load_remote_dotenv(
-            hostname="example.com",
-            username="user",
-            remote_env_path="/home/user/.env",
-            private_key_path="/path/to/private/key"
-        )
     """
     # Prepare authentication for client connection
     client = paramiko.SSHClient()
@@ -180,7 +146,7 @@ def load_remote_dotenv(
                 password = getpass.getpass(f"Enter password for {username}@{hostname}: ")
             connect_kwargs["password"] = password
             print("Attempting SSH connection with password...")
-            
+
         client.connect(**connect_kwargs)
 
         print("Connection successful. Opening SFTP session...")
@@ -194,17 +160,17 @@ def load_remote_dotenv(
                 # Ignore comments and empty lines
                 if not line or line.startswith("#"):
                     continue
-                
+
                 # Split on the first "="
                 if "=" in line:
                     key, value = line.split("=", 1)
                     key = key.strip()
                     value = value.strip().strip('"\'')  # cleaning up quotes/whitespace
-                    
+
                     # Set the environment variable for the current process
                     os.environ[key] = value
                     print(f"Loaded environment variable: '{key}'")
-        
+
         print("Successfully loaded all variables from remote .env file.")
         return True
 
@@ -225,3 +191,158 @@ def load_remote_dotenv(
         if client:
             client.close()
         print("Connection closed.")
+
+
+def read_pandas_from_encrypted_file(
+    encrypted_file_path: str,
+    encryption_key_var_name: str,
+    hostname: str,
+    username: str,
+    remote_env_path: str,
+    port: int = 22,
+    password: str = None,
+    private_key_path: str = None,
+    input_label_map: dict|None = None,
+) -> pd.DataFrame:
+    """
+    Reads and decrypts a file into a pandas DataFrame by first loading the
+    decryption key from a remote .env file.
+
+    Args:
+        encrypted_file_path (str): path to the local encrypted file.
+        encryption_key_var_name (str): name of the environment variable holding the key.
+        hostname (str): The remote server's hostname or IP address.
+        username (str): The username for the SSH connection.
+        remote_env_path (str): The full path to the .env file on the remote server.
+        port (int): The SSH port (default is 22).
+        password (str, optional): The password for SSH authentication.
+        private_key_path (str, optional): The path to your private SSH key.
+
+    Returns:
+        A pandas DataFrame with the decrypted data, or None if decryption fails.
+    """
+    # Load the encryption key from the remote server
+    print("Attempting to load environment variables from remote server...")
+    success = load_remote_dotenv(
+        hostname=hostname,
+        username=username,
+        remote_env_path=remote_env_path,
+        port=port,
+        password=password,
+        private_key_path=private_key_path,
+    )
+
+    if not success:
+        print("Failed to load remote environment variables. Cannot decrypt file.")
+        return None
+
+    # Proceed with decryption using the loaded key
+    try:
+        print(f"Successfully loaded key. Now decrypting '{encrypted_file_path}'...")
+        key = get_key(encryption_key_var_name)
+        f = Fernet(key)
+
+        with open(encrypted_file_path, "rb") as encrypted_file:
+            encrypted_data = encrypted_file.read()
+
+        decrypted_data = f.decrypt(encrypted_data)
+        df = pd.read_csv(BytesIO(decrypted_data))        
+        print("--- Decryption Process Successful ---")
+        
+        if input_label_map:
+            df.rename(columns=input_label_map, inplace=True)
+            print("Renamed the following columns:")
+            for old_label, new_label in input_label_map.items():
+                print(f"  '{old_label}' -> '{new_label}'")
+        
+        return df
+
+    # Handle potential errors during decryption
+    except FileNotFoundError:
+        print(f"Error: The encrypted file was not found at '{encrypted_file_path}'.")
+        return None
+    except ValueError as e:
+        print(f"Error retrieving encryption key: {e}")
+        return None
+    except Exception as e:
+        print(f"An error occurred during decryption: {e}")
+        return None
+
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(
+        description="Read an encrypted pandas DataFrame by fetching the key from a remote server."
+    )
+    parser.add_argument(
+        "--encrypted_file",
+        "-f",
+        type=str,
+        required=True,
+        help="Path to the local encrypted data file.",
+    )
+    parser.add_argument(
+        "--key_name",
+        "-k",
+        type=str,
+        required=True,
+        help="Name of the encryption key variable in the .env file.",
+    )
+    parser.add_argument(
+        "--hostname",
+        "-H",
+        type=str,
+        required=True,
+        help="Hostname or IP address of the remote server.",
+    )
+    parser.add_argument(
+        "--username",
+        "-u",
+        type=str,
+        required=True,
+        help="Username for SSH connection to the remote server.",
+    )
+    parser.add_argument(
+        "--remote_env_path",
+        "-r",
+        type=str,
+        required=True,
+        help="Path to the .env file on the remote server.",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=22,
+        help="SSH port on the remote server (default: 22).",
+    )
+    parser.add_argument(
+        "--private_key_path",
+        "-pk",
+        type=str,
+        default=None,
+        help="Path to the private SSH key for authentication (optional).",
+    )
+    parser.add_argument(
+        "--password",
+        "-pw",
+        type=str,
+        default=None,
+        help="Password for SSH authentication, if no key is used (optional).",
+    )
+    args = parser.parse_args()
+
+    # Try to read and decrypt the DataFrame using the remote key
+    decrypted_df = read_pandas_from_encrypted_file(
+        encrypted_file_path=args.encrypted_file,
+        encryption_key_var_name=args.key_name,
+        hostname=args.hostname,
+        username=args.username,
+        remote_env_path=args.remote_env_path,
+        port=args.port,
+        password=args.password,
+        private_key_path=args.private_key_path,
+    )
+
+    if decrypted_df is not None:
+        print("\nDecrypted DataFrame Head:")
+        print(decrypted_df.head())

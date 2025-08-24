@@ -33,7 +33,7 @@ def main(args):
     # Save a key to an local environment file, once
     print("Generating encryption key...")
     generate_and_secure_key_in_local_env_file(
-        key_var_name=args.encryption_key_var_name,
+        key_var_name=args.key_name,
         env_file_path=args.local_env_file_path,
     )
 
@@ -50,7 +50,7 @@ def main(args):
     write_pandas_to_encrypted_file(
         data_to_encrypt=df,
         encrypted_file_path=ENCRYPTED_DATASET_PATH,
-        encryption_key_var_name=args.encryption_key_var_name,
+        key_name=args.key_name,
     )
 
     # Inform the user that the key should be sent to a remote server
@@ -95,8 +95,8 @@ def create_dataset(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Create and encrypt dataset.")
     parser.add_argument(
-        "--encryption_key_var_name",
-        "-e",
+        "--key_name",
+        "-k",
         type=str,
         required=True,
         help="Name of the environment variable for encryption key retrieval.",

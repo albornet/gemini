@@ -1,9 +1,8 @@
 import yaml
-from itertools import chain
 from argparse import ArgumentParser, Namespace
 
 
-def _parse_script_args() -> Namespace:
+def add_model_arguments(parser: ArgumentParser) -> None:
     """ Parse and validate command line arguments
     
     Returns:
@@ -12,59 +11,95 @@ def _parse_script_args() -> Namespace:
         - debug: bool
         - plot_only: bool
     """
-    parser = ArgumentParser(description="Benchmark LLMs on healthcare tasks")
-    
-    # Run type configuration
-    parser.add_argument(
-        "-t", "--runtype",
-        default="very_small",
-        choices=["very_small", "small", "large", "all"],
-        help="Scope of benchmark: very_small, small, big, or all"
+    model_group = parser.add_argument_group(
+        title="Model configuration",
+        description="Configuration options for model benchmarking",
     )
 
-    # General configuration
-    parser.add_argument(
-        "-r", "--run_config_path",
-        default="configs/run_params.yaml",
-        help="Path to the run configuration file"
+    model_group.add_argument(
+        "-mc", "--model-config-path",
+        default="configs/model_config.yaml",
+        help="Path to the model configuration file"
     )
 
-    # Prompt configuration
-    parser.add_argument(
-        "-p", "--prompt_config_path",
-        default="configs/prompt_templates.yaml",
+    model_group.add_argument(
+        "-pc", "--prompt-config-path",
+        default="configs/prompt_config.yaml",
         help="Path to the prompt configuration file"
     )
 
-    # Output schema configuration
-    parser.add_argument(
-        "-o", "--output_config_path",
-        default="configs/output_schema.yaml",
+    model_group.add_argument(
+        "-oc", "--output-config-path",
+        default="configs/output_config.yaml",
         help="Path to the output schema configuration file"
     )
 
-    # Specific configuration for which model will be run
-    parser.add_argument(
-        "-m", "--model_config_path",
+
+def add_data_arguments(parser: ArgumentParser) -> None:
+    """
+    Add arguments required for reading an encrypted file by fetching a remote key.
+    """
+    data_group = parser.add_argument_group(
+        title="Input Configuration",
+        description="Arguments for the local encrypted file and key identifier."
+    )
+
+    data_group.add_argument(
+        "--encrypted-data-path",
+        "-ed",
+        type=str,
         required=True,
-        help="Path to the model configuration file"
+        help="Path to the local encrypted data file.",
+    )
+    data_group.add_argument(
+        "--key-name",
+        "-kn",
+        type=str,
+        required=True,
+        help="Name of the encryption key variable in the .env file on the remote server.",
+    )
+
+    data_group.add_argument(
+        "--hostname",
+        "-hn",
+        type=str,
+        required=True,
+        help="Hostname or IP address of the remote server.",
+    )
+    data_group.add_argument(
+        "--username",
+        "-un",
+        type=str,
+        required=True,
+        help="Username for the SSH connection.",
+    )
+    data_group.add_argument(
+        "--remote-env-path",
+        "-re",
+        type=str,
+        required=True,
+        help="Path to the .env file on the remote server.",
+    )
+    data_group.add_argument(
+        "--port",
+        type=int,
+        default=22,
+        help="SSH port on the remote server (default: 22).",
     )
     
-    # Debug mode flag
-    parser.add_argument(
-        "-d", "--debug",
-        action="store_true",
-        help="Enable debug mode"
+    data_group.add_argument(
+        "--private-key-path",
+        type=str,
+        default=None,
+        help="Path to the private SSH key for authentication (optional).",
     )
-
-    # Plot mode flag
-    parser.add_argument(
-        "-f", "--figures_only",
-        action="store_true",
-        help="Enable figures-only mode (to re-plot saved results)"
+    
+    data_group.add_argument(
+        "--password",
+        type=str,
+        default=None,
+        help="Password for SSH authentication, if no key is used (optional).",
     )
-
-    return parser.parse_args()
 
 
 def _load_config_from_yaml(config_file_path: str) -> dict:
@@ -81,43 +116,15 @@ def _load_config_from_yaml(config_file_path: str) -> dict:
         exit(1)
 
 
-# def _convert_dict_to_namespace(data: dict) -> Namespace:
-#     """ Recursively convert a dictionary and its nested dictionaries into
-#         argparse.Namespace objects
-#     """
-#     if not isinstance(data, dict):
-#         return data
-
-#     namespace_obj = Namespace()
-#     for key, value in data.items():
-#         if isinstance(value, dict):
-#             setattr(namespace_obj, key, _convert_dict_to_namespace(value))
-#         else:
-#             setattr(namespace_obj, key, value)
-#     return namespace_obj
-
-
-def load_config() -> Namespace:
-    """ Load configurations for benchmarking models into a single object
+def load_config_files(script_args) -> dict:
+    """ Load configurations from YAML files specified in script_args
     """
     # Load configurations
-    script_args = _parse_script_args()
-    run_config = _load_config_from_yaml(script_args.run_config_path)
     model_config = _load_config_from_yaml(script_args.model_config_path)
     prompt_config = _load_config_from_yaml(script_args.prompt_config_path)
     output_config = _load_config_from_yaml(script_args.output_config_path)
 
-    # Merge configurations into a single object
-    cfg = {**run_config, **model_config, **prompt_config, **output_config}
-    cfg["RUNTYPE"] = script_args.runtype.lower()
-    cfg["DEBUG"] = script_args.debug
-    cfg["FIGURES_ONLY"] = script_args.figures_only
+    # Combine all configurations into a single dictionary
+    run_config = {**run_config, **model_config, **prompt_config, **output_config}
 
-    # Select which models are going to be run
-    if cfg["RUNTYPE"] == "all":
-        models_to_benchmark = list(chain(*cfg["models"]))
-    else:
-        models_to_benchmark = cfg["models"][cfg["RUNTYPE"]]
-    cfg["MODELS_TO_BENCHMARK"] = models_to_benchmark
-    
-    return cfg  # _convert_dict_to_namespace(cfg)
+    return run_config

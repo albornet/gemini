@@ -40,7 +40,7 @@ def add_data_arguments(parser: ArgumentParser) -> None:
     Add arguments required for reading an encrypted file by fetching a remote key.
     """
     data_group = parser.add_argument_group(
-        title="Input Configuration",
+        title="Data access and remote env configuration",
         description="Arguments for the local encrypted file and key identifier."
     )
 
@@ -51,6 +51,7 @@ def add_data_arguments(parser: ArgumentParser) -> None:
         required=True,
         help="Path to the local encrypted data file.",
     )
+
     data_group.add_argument(
         "--key-name",
         "-kn",
@@ -58,7 +59,6 @@ def add_data_arguments(parser: ArgumentParser) -> None:
         required=True,
         help="Name of the encryption key variable in the .env file on the remote server.",
     )
-
     data_group.add_argument(
         "--hostname",
         "-hn",
@@ -66,6 +66,7 @@ def add_data_arguments(parser: ArgumentParser) -> None:
         required=True,
         help="Hostname or IP address of the remote server.",
     )
+
     data_group.add_argument(
         "--username",
         "-un",
@@ -73,6 +74,7 @@ def add_data_arguments(parser: ArgumentParser) -> None:
         required=True,
         help="Username for the SSH connection.",
     )
+
     data_group.add_argument(
         "--remote-env-path",
         "-re",
@@ -80,20 +82,21 @@ def add_data_arguments(parser: ArgumentParser) -> None:
         required=True,
         help="Path to the .env file on the remote server.",
     )
+
     data_group.add_argument(
         "--port",
         type=int,
         default=22,
         help="SSH port on the remote server (default: 22).",
     )
-    
+
     data_group.add_argument(
         "--private-key-path",
         type=str,
         default=None,
         help="Path to the private SSH key for authentication (optional).",
     )
-    
+
     data_group.add_argument(
         "--password",
         type=str,
@@ -125,6 +128,6 @@ def load_config_files(script_args) -> dict:
     output_config = _load_config_from_yaml(script_args.output_config_path)
 
     # Combine all configurations into a single dictionary
-    run_config = {**run_config, **model_config, **prompt_config, **output_config}
+    run_config = {**model_config, **prompt_config, **output_config}
 
     return run_config

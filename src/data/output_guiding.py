@@ -1,9 +1,10 @@
+import re
+import json
+import json5
 from typing import Type, Any, Union, List
-from pydantic import BaseModel, Field, create_model
+from pydantic import BaseModel, ValidationError, Field, create_model
+from pydantic_core import PydanticUndefinedType
 from vllm.sampling_params import GuidedDecodingParams
-from src.utils.run_utils import load_config
-
-cfg = load_config()
 
 
 # Mappings from json schema keywords to pydantic field arguments
@@ -14,23 +15,23 @@ CONSTRAINT_MAPPING = {
     "default": None,
     "description": None,
     "title": None,
-    
+
     # String
     "maxLength": "max_length",
     "minLength": "min_length",
     "pattern": "pattern",
-    
+
     # Numeric
     "minimum": "ge",
     "maximum": "le",
     "exclusiveMinimum": "gt",
     "exclusiveMaximum": "lt",
     "multipleOf": "multiple_of",
-    
+
     # Array
     "minItems": "min_length",  # pydantic uses min_length for lists
     "maxItems": "max_length",  # pydantic uses max_length for lists
-    
+
     # Need others?
     # ...
 
@@ -103,34 +104,235 @@ def create_pydantic_model_from_schema_dict(
 
 def create_output_guide(
     inference_backend: str,
+    output_schema_dict: dict[str, Any],
+    output_schema_name: str,
 ) -> Union[dict[str, Any], GuidedDecodingParams, Type[BaseModel]]:
     """ Dynamically creates a pydantic BaseModel class from yaml configuration
     """
     # Extract Pydantic style output schema from the configuration
     output_schema = create_pydantic_model_from_schema_dict(
-        schema_dict=cfg["output_schema"],
-        model_name=cfg["output_schema_name"],
+        schema_dict=output_schema_dict,
+        model_name=output_schema_name,
     )
-    
+
     # Return an output guide corresponding to the backend used for LLM inference
     match inference_backend:
         case "llama-cpp":
             return output_schema.model_json_schema()
         case "vllm":
             json_schema = output_schema.model_json_schema()
-            return GuidedDecodingParams(
-                json=json_schema,
-                backend="xgrammar:no-fallback",
-            )
+            return GuidedDecodingParams(json=json_schema)
         case "hf":
             return output_schema  # not sure how to handle the classif HugginfFace case
         case _:
             raise ValueError(f"Unsupported inference backend: {inference_backend}")
 
 
-if __name__ == "__main__":
-    output_schema = create_pydantic_model_from_schema_dict(
-        schema_dict=cfg["output_schema"],
-        model_name=cfg["output_schema_name"],
-    )
-    import ipdb; ipdb.set_trace()
+def extract_structured_output(
+    sample: dict[str, Any],
+    output_schema_model: Type[BaseModel],
+) -> dict[str, Any]:
+    """
+    Extracts structured output from raw model output using a multi-stage
+    lenient parsing strategy.
+
+    Args:
+        sample (dict[str, Any]): The sample containing model output.
+        output_schema_model (Type[BaseModel]): The Pydantic model for validation.
+    
+    Returns:
+        dict[str, Any]: Structured and validated output from the LLM.
+    """
+    raw_output = sample.get("output_text")
+    if not isinstance(raw_output, str) or not raw_output.strip():
+        # Handle cases where output is missing or empty
+        print("Warning: 'output_text' is missing or empty. Returning default values.")
+        return _get_default_values(output_schema_model)
+
+    # Direct pydantic parse
+    try:
+        validated_output = output_schema_model.model_validate_json(raw_output.strip())
+        print("Success: Direct parsing successful.")
+        return validated_output.model_dump()
+    except (ValidationError, json.JSONDecodeError):
+        pass  # silently fail and move to the next stage
+
+    # Isolate JSON block and look for markdown code fences
+    json_candidate = raw_output
+    match = re.search(r"```(json)?\s*({.*})\s*```", raw_output, re.DOTALL)
+    if match:
+        json_candidate = match.group(2)
+    else:
+        # Fallback to finding the first '{' and last '}'
+        try:
+            start = raw_output.index("{")
+            end = raw_output.rindex("}") + 1
+            json_candidate = raw_output[start:end]
+        except ValueError:
+            pass  # no JSON object found
+    try:
+        validated_output = output_schema_model.model_validate_json(json_candidate)
+        print("Success: Isolated and parsed JSON block.")
+        return validated_output.model_dump()
+    except (ValidationError, json.JSONDecodeError):
+        pass
+
+    # Parse with json5 library (more lenient with trailing commas, comments, etc.)
+    try:
+        data = json5.loads(json_candidate)
+        validated_output = output_schema_model.model_validate(data)
+        print("Success: Parsed with lenient json5 library.")
+        return validated_output.model_dump()
+    except (ValidationError, Exception):  # json5 might raise other errors
+        pass
+
+    # Attempt to repair truncation
+    try:
+        repaired_json = _repair_truncated_json(json_candidate)
+        validated_output = output_schema_model.model_validate_json(repaired_json)
+        print("Success: Repaired truncated JSON and parsed.")
+        return validated_output.model_dump()
+    except (ValidationError, json.JSONDecodeError):
+        pass
+
+    # Field-by-field regex extraction
+    print("Warning: All parsing methods failed. Attempting field-by-field regex extraction.")
+    extracted_data = {}
+    for field_name, field_info in output_schema_model.model_fields.items():
+        field_type = field_info.annotation
+        value = _extract_field_with_regex(json_candidate, field_name, field_type)
+        if value is not None:
+            extracted_data[field_name] = value
+
+    if extracted_data:
+        print(f"Success: Extracted partial data with regex: {list(extracted_data.keys())}")
+        
+        # Merge extracted fields with default ones for missing fields
+        defaults = _get_default_values(output_schema_model)
+        defaults.update(extracted_data)
+
+        # Final validation pass on the cobbled-together data
+        try:
+            final_model = output_schema_model.model_validate(defaults)
+            return final_model.model_dump()
+        except ValidationError:
+            # If validation still fails, return what we have plus defaults
+            return defaults
+
+    # Final Fallback (return only default values)
+    print("Error: Could not extract any fields. Returning default values.")
+    return _get_default_values(output_schema_model)
+
+
+def _repair_truncated_json(s: str) -> str:
+    """
+    Append missing brackets/braces to a potentially truncated JSON string
+    """
+    open_braces = s.count('{')
+    close_braces = s.count('}')
+    open_brackets = s.count('[')
+    close_brackets = s.count(']')
+
+    s += '}' * (open_braces - close_braces)
+    s += ']' * (open_brackets - close_brackets)
+    return s
+
+
+def _extract_field_with_regex(
+    text: str,
+    field_name: str,
+    field_type: Type,
+) -> Any | None:
+    """
+    Extracts a single field value using a type-aware regex pattern
+    """
+    # Pattern for string: "field_name"\s*:\s*"<value>"
+    if field_type == str:
+
+        # Captures content inside double quotes, handling escaped quotes
+        pattern = rf'"{field_name}"\s*:\s*"((?:\\"|[^"])*)"'
+        match = re.search(pattern, text)
+        return match.group(1).replace('\\"', '"') if match else None
+
+    # Pattern for number (int/float): "field_name"\s*:\s*<value>
+    if field_type in (int, float):
+        pattern = rf'"{field_name}"\s*:\s*(-?\d+\.?\d*)'
+        match = re.search(pattern, text)
+        return field_type(match.group(1)) if match else None
+
+    # Pattern for boolean: "field_name"\s*:\s*<value>
+    if field_type == bool:
+        pattern = rf'"{field_name}"\s*:\s*(true|false)'
+        match = re.search(pattern, text)
+        if match:
+            return match.group(1) == 'true'
+        return None
+    
+    return None
+
+
+def _get_default_values(model: Type[BaseModel]) -> dict[str, Any]:
+    """
+    Builds a dictionary of default values from a Pydantic model
+    """
+    defaults = {}
+    for name, field in model.model_fields.items():
+        if field.default_factory:
+            defaults[name] = field.default_factory()
+        elif not isinstance(field.default, PydanticUndefinedType):
+            defaults[name] = field.default
+        else:
+            defaults[name] = None  # for required fields with no default
+    
+    return defaults
+
+
+# def extract_structured_output_old(
+#     sample: dict[str, Any],
+#     output_schema_model: type[BaseModel],
+# ) -> dict[str, Any]:
+#     """
+#     Extract structured output from raw model output vaidating with pydantic
+
+#     Args:
+#         raw_output (str): raw output from the LLM
+    
+#     Returns:
+#         dict[str, Any]: structured and validated output from the LLM
+#     """
+#     # Extract model's raw answer
+#     raw_output = sample.get("output_text")
+#     if raw_output is None:
+#         raise KeyError("The sample is missing the 'output_text' key. Cannot process.")
+    
+#     # Try direct JSON parse
+#     try:
+#         validated_output = output_schema_model.model_validate_json(raw_output.strip())
+#         return validated_output.model_dump()
+
+#     except (ValidationError, json.JSONDecodeError) as e:
+#         print(f"Pydantic validation/JSON parsing failed: {e}. Attempting lenient parsing.")
+
+#     # If direct validation fails, try extracting substring between first "{" and last "}"
+#     try:
+#         start = raw_output.index("{")
+#         end = raw_output.rindex("}") + 1
+#         json_candidate = raw_output[start:end]
+#         validated_output = output_schema_model.model_validate_json(json_candidate)
+#         return validated_output.model_dump()
+    
+#     except (ValueError, ValidationError, json.JSONDecodeError) as e:
+#         print(f"Lenient parsing failed: {e}. Returning default values.")
+    
+#     # Build default output if all parsing methods failed
+#     default_output = {}
+#     for field_name, field in output_schema_model.model_fields.items():
+#         if field.default_factory is None:
+#             if isinstance(field.default, PydanticUndefinedType):
+#                 default_output[field_name] = None
+#             else:
+#                 default_output[field_name] = field.default
+#         else:
+#             default_output[field_name] = field.default_factory()
+
+#     return default_output

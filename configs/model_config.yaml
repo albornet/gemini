@@ -1,21 +1,21 @@
 
 # Data and results
-RESULT_DIR: "./results"
-DATASET_PATH: ".data/data_2025/processed/dataset.csv"
+result_dir: "./results"
+dataset_path: ".data/data_2025/processed/dataset.csv"
 
 # Model configuration
-MODEL_PATH: unsloth/Qwen3-8B-GGUF
-QUANT_METHOD: gguf
-QUANT_SCHEME: Q4_K_M
-MAX_CONTEXT_LENGTH: 16384  # note: maximum tokens in a "lettre de sortie" is 6144
-MAX_GENERATED_TOKENS: 1024
-TOP_P: 0.95
-TEMPERATURE: 0.80
-USE_FLASH_ATTENTION: True
+model_path: unsloth/Qwen3-0.6B-GGUF
+quant_method: gguf
+quant_scheme: Q4_K_M
+max_context_length: 16384  # note: maximum tokens in a "lettre de sortie" is 6144
+max_generated_tokens: 1024
+top_p: 0.95
+temperature: 0.80
+use_flash_attention: True
 
 # Run parameters
-N_INFERENCE_REPEATS: 10  # number of times each inference is repeated for benchmark
-INFERENCE_BACKEND: "hf"  # hf, vllm, llama-cpp
-USE_OUTPUT_GUIDE: True
-SKIP_TO_NEXT_MODEL_IF_ERROR: True
-DELETE_MODEL_CACHE_AFTER_RUN: True
+n_inference_repeats: 1  # 10 -> 1 IS DEBUG  # number of times each inference is repeated for benchmark
+inference_backend: vllm  # hf, vllm, llama-cpp
+use_output_guide: True
+skip_to_next_model_if_error: True
+delete_model_cache_after_run: True

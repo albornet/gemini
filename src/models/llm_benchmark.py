@@ -179,8 +179,12 @@ def extract_preds_and_labels(dataset: Dataset):
     """ Extract a set of model predictions and output labels for different runs
         to a list of datasets with labels and predictions
     """
+    # Replace None in the labels with -1, and convert to int
     num_models = sum(["mRS_" in f for f in dataset.features])
+    dataset = dataset.map(lambda x: {"label": -1 if x["label"] is None else int(x["label"])})
     preds_and_labels = [{"label": dataset["label"]} for _ in range(num_models)]
+
+    # Extract predictions for each model    
     for feature in dataset.features:
         if "mRS_" in feature:
             original_feature_name, index = feature.split("_")

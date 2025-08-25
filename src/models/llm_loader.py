@@ -1,32 +1,34 @@
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+from transformers import AutoModelForCausalLM, AutoTokenizer
 from vllm import LLM
 from llama_cpp import Llama
-from huggingface_hub import list_repo_files, hf_hub_download, snapshot_download, HfApi
+from huggingface_hub import list_repo_files, hf_hub_download, HfApi
 from warnings import warn
-from src.utils.run_utils import load_config
-
-cfg = load_config()
 
 
 def get_model_and_tokenizer(
     model_path: str,
+    inference_backend: str,
     quant_method: str,
     quant_scheme: str|None=None,
+    max_context_length: int|None=None,
+    use_flash_attention: bool=False,
+    *args, **kwargs,
 ) -> tuple[AutoModelForCausalLM, AutoTokenizer]:
-    """ Create an LLM-based inference generator for solving a task
-    
+    """
+    Create an LLM-based inference generator for solving a task
+
     Args:
         model_path (str): reference string to load model from huggingface
         quant_method (str): model file format (normal, bitsandbytes, awq, tqdm, gguf, etc.)
     """
     tokenizer = None
-    match cfg["INFERENCE_BACKEND"]:
+    match inference_backend:
         
         # Using vLLM backend
         case "vllm":
             model_args = {
                 "trust_remote_code": True,
-                "max_model_len": cfg["MAX_CONTEXT_LENGTH"],
+                "max_model_len": max_context_length,
             }
             if quant_method == "bnb":
                 raise ValueError(f"vLLM does not support format {quant_method}")
@@ -36,10 +38,10 @@ def get_model_and_tokenizer(
                 model_args.update({"model": model_file_path, "tokenizer": tokenizer_path})
             else:
                 model_args.update({"model": model_path, "quantization": quant_method})
-            model = LLM(**model_args)
+            model = LLM(**model_args, gpu_memory_utilization=0.4)  # 0.4 IS DEBUG
             cache_path = model.llm_engine.model_config.model
             # cache_path = model.llm_engine.model_config.served_model_name
-        
+
         # Using Llama-cpp backend
         case "llama-cpp":
             if quant_method != "gguf":
@@ -48,8 +50,8 @@ def get_model_and_tokenizer(
                 repo_id=model_path,
                 filename=f"*{quant_scheme}.gguf",
                 n_gpu_layers=-1,  # 0 for not using GPU
-                n_ctx=cfg["MAX_CONTEXT_LENGTH"],
-                flash_attn=cfg["USE_FLASH_ATTENTION"],
+                n_ctx=max_context_length,
+                flash_attn=use_flash_attention,
                 verbose=False,
             )
             cache_path = model._model.path_model
@@ -61,7 +63,7 @@ def get_model_and_tokenizer(
             model = AutoModelForCausalLM.from_pretrained(
                 model_path,
                 device_map="auto",
-                attn_implementation="flash_attention_2" if cfg["USE_FLASH_ATTENTION"] else None,
+                attn_implementation="flash_attention_2" if use_flash_attention else None,
                 trust_remote_code=True,
             )
             tokenizer = AutoTokenizer.from_pretrained(model_path, use_fast=True)
@@ -73,8 +75,9 @@ def get_tokenizer_name(
     model_id: str,
     chat_template_required: bool=True,
 ) -> str:
-    """ Identify base model from which any model was quantized, in order to load
-        the correct tokenizer
+    """
+    Identify base model from which any model was quantized, in order to load
+    the correct tokenizer
     """
     # Look for base model in the "cardData" (where model tree info is stored)
     api = HfApi()
@@ -106,7 +109,8 @@ def get_tokenizer_name(
 
 
 def download_gguf_by_quant(model_id: str, quant_scheme: str) -> str:
-    """ Download the first matching GGUF file in a model repository
+    """
+    Download the first matching GGUF file in a model repository
     """
     quant_scheme_lower = quant_scheme.lower()
     files = list_repo_files(model_id)

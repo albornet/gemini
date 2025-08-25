@@ -1,20 +1,14 @@
-import json
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from datasets import Dataset
 from llama_cpp import Llama
 from vllm import LLM, SamplingParams
 from tqdm import tqdm
 from typing import Any
-from pydantic import ValidationError
-from pydantic_core import PydanticUndefinedType
-from src.utils.run_utils import load_config
-from src.data.output_guiding import create_pydantic_model_from_schema_dict
-from src.data.output_guiding import create_output_guide
-
-cfg = load_config()
-OUTPUT_SCHEMA_MODEL = create_pydantic_model_from_schema_dict(
-    schema_dict=cfg["output_schema"],
-    model_name=cfg["output_schema_name"],
+from functools import partial
+from src.data.output_guiding import (
+    create_pydantic_model_from_schema_dict,
+    create_output_guide,
+    extract_structured_output,
 )
 
 
@@ -22,33 +16,41 @@ def process_samples(
     dataset: Dataset,
     model: AutoModelForCausalLM|Llama|LLM,
     tokenizer: AutoTokenizer,
+    inference_backend: str,
+    use_output_guide: bool=False,
+    output_schema: dict[str, Any]|None=None,
+    output_schema_name: str|None=None,
+    max_generated_tokens: int=512,
+    temperature: float=1.0,
+    top_p: float=1.0,
+    *args, **kwargs,
 ) -> dict[str, str]:
-    """ Process a sample by formatting the input text, prompting an LLM, and
-        extracting reasoning and predictions.
-
-    Args:
-        TODO: CORRECT THIS !!! sample (dict[str, str]): sample including input text
-        model (AutoModelForCausalLM): language model used for inference
-        tokenizer (AutoTokenizer): tokenizer used by the inference model
+    """
+    Process a sample by formatting the input text, prompting an LLM,
+    and extracting reasoning and predictions.
 
     Returns:
         dict[str, str]: updated sample with extracted reasoning and predictions
     """
     # Get output guide if required
-    if cfg["USE_OUTPUT_GUIDE"]:
-        output_guide = create_output_guide(inference_backend=cfg["INFERENCE_BACKEND"])
+    if use_output_guide:
+        output_guide = create_output_guide(
+            inference_backend=inference_backend,
+            output_schema_dict=output_schema,
+            output_schema_name=output_schema_name,
+        )
     else:
         output_guide = None
 
     # Use LLM inference to process the dataset
     output_texts = []
-    match cfg["INFERENCE_BACKEND"]:
+    match inference_backend:
 
         case "vllm":
             sampling_params = SamplingParams(
-                max_tokens=cfg["MAX_GENERATED_TOKENS"],
-                temperature=cfg["TEMPERATURE"],
-                top_p=cfg["TOP_P"],
+                max_tokens=max_generated_tokens,
+                temperature=temperature,
+                top_p=top_p,
                 guided_decoding=output_guide,
             )
             outputs = model.chat(dataset["messages"], sampling_params=sampling_params)
@@ -62,78 +64,41 @@ def process_samples(
             for messages in tqdm(dataset["messages"], desc="Generating inferences"):
                 response = model.create_chat_completion(
                     messages=messages,
-                    max_tokens=cfg["MAX_GENERATED_TOKENS"],
-                    temperature=cfg["TEMPERATURE"],
-                    top_p=cfg["TOP_P"],
+                    max_tokens=max_generated_tokens,
+                    temperature=temperature,
+                    top_p=top_p,
                     response_format=response_format,
                 )
                 output_text = response["choices"][0]["message"]["content"].strip()
                 output_texts.append(output_text)
-                
+
         case "huggingface":
             # TODO: FIGURE OUT HOW I CAN INCLUDE OUTPUT GUIDING HERE, OR DROP HF?
             for prompt in tqdm(dataset["prompt"], desc="Generating inferences"):
                 inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
                 output = model.generate(
                     **inputs,
-                    max_new_tokens=cfg["MAX_GENERATED_TOKENS"],
+                    max_new_tokens=max_generated_tokens,
                     pad_token_id=tokenizer.eos_token_id,
-                    temp=cfg["TEMPERATURE"],
-                    top_p=cfg["TOP_P"],
+                    temp=temperature,
+                    top_p=top_p,
                 )
                 generated_tokens = output[0, inputs["input_ids"].shape[-1]:]
                 output_text = tokenizer.decode(generated_tokens, skip_special_tokens=True).strip()
                 output_texts.append(output_text)
     
     # Update the dataset with the output the LLM
+    output_schema_model = create_pydantic_model_from_schema_dict(
+        schema_dict=output_schema,
+        model_name=output_schema_name,
+    )
     dataset = dataset.add_column("output_text", output_texts)
-    dataset = dataset.map(extract_structured_output, desc="Extracting model predictions")
+    dataset = dataset.map(
+        function=partial(
+            extract_structured_output,
+            output_schema_model=output_schema_model,
+        ),
+        desc="Extracting model predictions",
+    )
 
     return dataset
-
-
-def extract_structured_output(sample: dict[str, Any]) -> dict[str, Any]:
-    """ Extract structured output from raw model output vaidating with pydantic
-
-        Args:
-        - raw_output (str): raw output from the LLM
-    
-        Returns:
-        - dict[str, Any]: structured and validated output from the LLM
-    """
-    # Extract model's raw answer
-    raw_output = sample.get("output_text")
-    if raw_output is None:
-        raise KeyError("The sample is missing the 'output_text' key. Cannot process.")
-    
-    # Try direct JSON parse
-    try:
-        validated_output = OUTPUT_SCHEMA_MODEL.model_validate_json(raw_output.strip())
-        return validated_output.model_dump()
-    
-    except (ValidationError, json.JSONDecodeError) as e:
-        print(f"Pydantic validation/JSON parsing failed: {e}. Attempting lenient parsing.")
-
-    # If direct validation fails, try extracting substring between first "{" and last "}"
-    try:
-        start = raw_output.index("{")
-        end = raw_output.rindex("}") + 1
-        json_candidate = raw_output[start:end]
-        validated_output = OUTPUT_SCHEMA_MODEL.model_validate_json(json_candidate)
-        return validated_output.model_dump()
-    
-    except (ValueError, ValidationError, json.JSONDecodeError) as e:
-        print(f"Lenient parsing failed: {e}. Returning default values.")
-    
-    # Build default output if all parsing methods failed
-    default_output = {}
-    for field_name, field in OUTPUT_SCHEMA_MODEL.model_fields.items():
-        if field.default_factory is None:
-            if isinstance(field.default, PydanticUndefinedType):
-                default_output[field_name] = None
-            else:
-                default_output[field_name] = field.default
-        else:
-            default_output[field_name] = field.default_factory()
-
-    return default_output

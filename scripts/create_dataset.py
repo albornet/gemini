@@ -50,7 +50,7 @@ def main(args):
     write_pandas_to_encrypted_file(
         data_to_encrypt=df,
         encrypted_file_path=ENCRYPTED_DATASET_PATH,
-        key_name=args.key_name,
+        encryption_key_var_name=args.key_name,
     )
 
     # Inform the user that the key should be sent to a remote server

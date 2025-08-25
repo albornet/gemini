@@ -1,4 +1,3 @@
-
 # Data and results
 result_dir: "./results"
 dataset_path: ".data/data_2025/processed/dataset.csv"
@@ -8,14 +7,14 @@ model_path: unsloth/Qwen3-0.6B-GGUF
 quant_method: gguf
 quant_scheme: Q4_K_M
 max_context_length: 16384  # note: maximum tokens in a "lettre de sortie" is 6144
-max_generated_tokens: 1024
+max_new_tokens: 1024  # note: this corresponds to the maximum generated tokens
 top_p: 0.95
 temperature: 0.80
 use_flash_attention: True
 
 # Run parameters
-n_inference_repeats: 1  # 10 -> 1 IS DEBUG  # number of times each inference is repeated for benchmark
+n_inference_repeats: 10  # number of times each inference is repeated for benchmark
 inference_backend: vllm  # hf, vllm, llama-cpp
 use_output_guide: True
 skip_to_next_model_if_error: True
-delete_model_cache_after_run: True
+delete_model_cache_after_run: True  # note: not used for now! but see llm_loader with cache_path

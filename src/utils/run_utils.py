@@ -1,5 +1,7 @@
+import os
+import torch
 import yaml
-from argparse import ArgumentParser, Namespace
+from argparse import ArgumentParser
 
 
 def add_model_arguments(parser: ArgumentParser) -> None:
@@ -131,3 +133,29 @@ def load_config_files(script_args) -> dict:
     run_config = {**model_config, **prompt_config, **output_config}
 
     return run_config
+
+
+def set_torch_cuda_arch_list() -> None:
+    """
+    Sets the TORCH_CUDA_ARCH_LIST environment variable to the CUDA compute
+    capability of the current GPU(s). This prevents PyTorch from compiling
+    kernels for all possible architectures, reducing compilation time.
+    """
+    if not torch.cuda.is_available():
+        print("CUDA is not available. Skipping TORCH_CUDA_ARCH_LIST setup.")
+        return
+
+    # Get the current GPU's compute capability.
+    # For example, on an RTX 3080, this will return a tuple like (8, 6).
+    major, minor = torch.cuda.get_device_capability(device=None)
+    
+    # Note: the required format is 'X.Y', not 'sm_XY'.
+    cuda_arch_value = f"{major}.{minor}"
+    
+    # Check if the environment variable is already set correctly
+    if os.environ.get('TORCH_CUDA_ARCH_LIST') != cuda_arch_value:
+        print(f"Setting TORCH_CUDA_ARCH_LIST to '{cuda_arch_value}' for efficient compilation.")
+        os.environ['TORCH_CUDA_ARCH_LIST'] = cuda_arch_value
+    else:
+        print(f"TORCH_CUDA_ARCH_LIST is already set to '{cuda_arch_value}'.")
+

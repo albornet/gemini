@@ -21,7 +21,7 @@ def get_model_and_tokenizer(
         model_path (str): reference string to load model from huggingface
         quant_method (str): model file format (normal, bitsandbytes, awq, tqdm, gguf, etc.)
     """
-    tokenizer = None
+    tokenizer = None  # default value (for now, for llama-cpp)
     match inference_backend:
         
         # Using vLLM backend
@@ -38,7 +38,8 @@ def get_model_and_tokenizer(
                 model_args.update({"model": model_file_path, "tokenizer": tokenizer_path})
             else:
                 model_args.update({"model": model_path, "quantization": quant_method})
-            model = LLM(**model_args, gpu_memory_utilization=0.4)  # 0.4 IS DEBUG
+            model = LLM(**model_args)  # using default gpu_memory_utilization = 0.9
+            tokenizer = model.get_tokenizer()
             cache_path = model.llm_engine.model_config.model
             # cache_path = model.llm_engine.model_config.served_model_name
 

@@ -38,7 +38,11 @@ def build_prompt(
     # Apply the chat template if a tokenizer is provided
     prompt_str = None
     if tokenizer is not None:
-        prompt_str = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-    
+        prompt_str = tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+        )
+
     return {"messages": messages, "prompt": prompt_str}
 

@@ -1,5 +1,6 @@
 Bootstrap: docker
-From: pytorch/pytorch:2.4.1-cuda12.4-cudnn9-devel
+From: pytorch/pytorch:2.8.0-cuda12.9-cudnn9-devel
+# From: pytorch/pytorch:2.4.1-cuda12.4-cudnn9-devel
 
 %post
     # Install basics
@@ -13,7 +14,6 @@ From: pytorch/pytorch:2.4.1-cuda12.4-cudnn9-devel
     uv pip install -u vllm
 
     # For llama-cpp-python with CMAKE_ARGS
-    # uv add is equivalent to pip install, but handles environment variables slightly differently
     # We need to ensure CMAKE_ARGS is set for the uv command.
     # The --config-settings approach is generally more robust for uv/pip when dealing with build flags.
     uv pip install --no-cache-dir llama-cpp-python --config-settings="cmake.args=-DGGML_CUDA=on"

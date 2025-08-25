@@ -1,70 +1,62 @@
 #!/bin/bash
 
-# Common sbatch variables
-# PARTITION="shared-gpu,private-teodoro-gpu"
+#=================================================================================
+# Slurm Submitter Script for Remote Decryption on HPC
+#
+# Prompts for an SSH password on the login node and submits a non-interactive
+# Apptainer/Singularity job to a compute node.
+#=================================================================================
+
+# Slurm job configuration
+JOB_NAME="gemini-inference"
 PARTITION="private-teodoro-gpu"
 NUM_NODES=1
 NUM_TASKS=1
-TOTAL_CPU_MEMORY=64gb
+TOTAL_CPU_MEMORY="64gb"
+GPU_IDS="gpu034,gpu035"
+TIME_LIMIT="2-00:00:00"
 NUM_CPUS_PER_TASK=8
-# NUM_GPUS_PER_TASK=1
+NUM_GPUS_PER_TASK=1
 
-# Script variables
-SIF_FOLDER=/home/users/b/borneta/sif
-SIF_NAME=gemini-image.sif
-SIF_IMAGE=${SIF_FOLDER}/${SIF_NAME}
-SCRIPT=script.run_benchmark
+# Python environment configuration
+SIF_FOLDER="/home/users/b/borneta/sif"
+SIF_NAME="gemini-image.sif"
+SIF_IMAGE="${SIF_FOLDER}/${SIF_NAME}"
 
-# Run variables
-# RUN_TYPES=("very_small")
-RUN_TYPES=("small" "big")
+# Decryption script configuration
+PYTHON_WRAPPER_CALL="python -m scripts.run_benchmark"
+HOSTNAME="10.195.108.106"
+USERNAME="borneta"
+REMOTE_ENV_PATH="/home/borneta/Documents/gemini/.env"
+ENCRYPTED_FILE="./data/data_2025/processed/dataset.encrypted.csv"
+KEY_VAR_NAME="GEMINI"
+OUTPUT_FILE="./results/decrypted_data.csv"
 
-# Function to set GPU IDs and time limit based on runtype
-set_variables() {
-    local runtype=$1
-    case $runtype in
-        "very_small")
-            # GPU_IDS="gpu023,gpu024,gpu036,gpu037,gpu038,gpu039,gpu040,gpu041,gpu042,gpu043"
-            # TIME_LIMIT="0-01:00:00"
-            GPU_IDS="gpu034,gpu035"
-            TIME_LIMIT="1-00:00:00"
-            NUM_GPUS_PER_TASK=1
-            ;;
-        "small")
-            # GPU_IDS="gpu023,gpu024,gpu036,gpu037,gpu038,gpu039,gpu040,gpu041,gpu042,gpu043"
-            # TIME_LIMIT="0-10:00:00"
-            GPU_IDS="gpu034,gpu035"
-            TIME_LIMIT="1-12:00:00"
-            NUM_GPUS_PER_TASK=1
-            ;;
-        "big")
-            # GPU_IDS="gpu020,gpu022,gpu027,gpu028,gpu030,gpu031"
-            # TIME_LIMIT="0-10:00:00"
-            GPU_IDS="gpu034,gpu035"
-            TIME_LIMIT="2-06:00:00"
-            NUM_GPUS_PER_TASK=2
-            ;;
-        *)
-            echo "Unknown runtype: $runtype"
-            exit 1
-            ;;
-    esac
-}
+# Secure password prompt
+echo "Please enter the SSH password for ${USERNAME}@${HOSTNAME}"
+read -s -p "Password: " SSH_PASSWORD  # -s flag hides the input
+echo ""  # Add a newline for cleaner terminal output
 
-# Loop over the runtypes
-for RUNTYPE in "${RUN_TYPES[@]}"
-do
-  set_variables "$RUNTYPE"  # to set GPU_IDS and TIME_LIMIT
-  sbatch --job-name=gemini_inference_${RUNTYPE} \
-         --partition=$PARTITION \
-         --nodelist=$GPU_IDS \
-         --nodes=$NUM_NODES \
-         --ntasks=$NUM_TASKS \
-         --gpus-per-task=$NUM_GPUS_PER_TASK \
-         --cpus-per-task=$NUM_CPUS_PER_TASK \
-         --mem=$TOTAL_CPU_MEMORY \
-         --time=$TIME_LIMIT \
-         --output=./results/logs/job_%j_${RUNTYPE}.txt \
-         --error=./results/logs/job_%j_${RUNTYPE}.err \
-         --wrap="srun apptainer exec --nv ${SIF_IMAGE} python -m ${SCRIPT} --runtype=${RUNTYPE}"
-done
+# Job submission
+sbatch \
+    --job-name=$JOB_NAME \
+    --partition=$PARTITION \
+    --nodelist=$GPU_IDS \
+    --nodes=$NUM_NODES \
+    --ntasks=$NUM_TASKS \
+    --gpus-per-task=$NUM_GPUS_PER_TASK \
+    --cpus-per-task=$NUM_CPUS_PER_TASK \
+    --mem=$TOTAL_CPU_MEMORY \
+    --time=$TIME_LIMIT \
+    --output=./results/logs/job_%j.txt \
+    --error=./results/logs/job_%j.err \
+    --wrap="srun apptainer exec --nv ${SIF_IMAGE} ${PYTHON_WRAPPER_CALL} \
+        --encrypted-data-path \"${ENCRYPTED_FILE}\" \
+        --remote-env-path \"${REMOTE_ENV_PATH}\" \
+        --key-name ${KEY_VAR_NAME} \
+        --hostname ${HOSTNAME} \
+        --username ${USERNAME} \
+        --password \"${SSH_PASSWORD}\""
+
+echo "Job submitted to Slurm. Check status with 'squeue -u \$USER'."
+echo "Output will be in ./results/logs/job_<jobID>.txt"

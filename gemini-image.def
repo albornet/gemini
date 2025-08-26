@@ -1,0 +1,36 @@
+Bootstrap: docker
+From: pytorch/pytorch:2.8.0-cuda12.9-cudnn9-devel
+# From: pytorch/pytorch:2.4.1-cuda12.4-cudnn9-devel
+
+%files
+    requirements.txt /app/
+
+%post
+    # Install basics
+    apt-get update && apt-get install -y build-essential cmake git python3 python3-pip curl ca-certificates
+    ln -s /usr/bin/python3 /usr/bin/python
+
+    # Use uv to create a virtual environment and install packages
+    pip install uv
+    
+    # Create the /app directory and move into it
+    mkdir -p /app
+    cd /app
+
+    # Now that we are in /app, the venv will be created at /app/.venv
+    uv venv
+
+    # Install all required packages into /app/.venv
+    uv pip install -U -r /app/requirements.txt
+
+    # For llama-cpp-python with CMAKE_ARGS
+    uv pip install --no-cache-dir llama-cpp-python --config-settings="cmake.args=-DGGML_CUDA=on"
+
+%environment
+    # This path now correctly points to the Python interpreter in our venv
+    export PATH="/app/.venv/bin:$PATH"
+
+%labels
+    Author alban.bornet@unige.ch
+    Version 0.1
+    Description "Gemini container with vllm and llama-cpp-python installed using uv"

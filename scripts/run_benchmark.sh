@@ -8,15 +8,16 @@
 #=================================================================================
 
 # Slurm job configuration
-JOB_NAME="gemini-inference"
-PARTITION="private-teodoro-gpu"
-NUM_NODES=1
-NUM_TASKS=1
-TOTAL_CPU_MEMORY="64gb"
-GPU_IDS="gpu034,gpu035"
-TIME_LIMIT="2-00:00:00"
-NUM_CPUS_PER_TASK=8
-NUM_GPUS_PER_TASK=1
+JOB_NAME=gemini-inference
+PARTITION=private-teodoro-gpu 
+# PARTITION=shared-gpu
+TIME=2-00:00:00  # 2-00:00:00
+MEM=64gb
+NODES=1
+NTASKS=1
+CPUS_PER_TASK=8
+GPUS_PER_TASK=1
+CONSTRAINT="COMPUTE_MODEL_RTX_3090_25G|COMPUTE_MODEL_RTX_4090_25G"
 
 # Python environment configuration
 SIF_FOLDER="/home/users/b/borneta/sif"
@@ -28,35 +29,32 @@ PYTHON_WRAPPER_CALL="python -m scripts.run_benchmark"
 HOSTNAME="10.195.108.106"
 USERNAME="borneta"
 REMOTE_ENV_PATH="/home/borneta/Documents/gemini/.env"
-ENCRYPTED_FILE="./data/data_2025/processed/dataset.encrypted.csv"
-KEY_VAR_NAME="GEMINI"
+ENCRYPTED_DATA_PATH="./data/data_2025/processed/dataset.encrypted.csv"
+KEY_NAME="GEMINI"
 OUTPUT_FILE="./results/decrypted_data.csv"
 
 # Secure password prompt
 echo "Please enter the SSH password for ${USERNAME}@${HOSTNAME}"
-read -s -p "Password: " SSH_PASSWORD  # -s flag hides the input
-echo ""  # Add a newline for cleaner terminal output
+read -s -p "Password: " PASSWORD  # -s flag hides the input
+echo ""  # add a newline for cleaner terminal output
 
 # Job submission
 sbatch \
     --job-name=$JOB_NAME \
     --partition=$PARTITION \
-    --nodelist=$GPU_IDS \
-    --nodes=$NUM_NODES \
-    --ntasks=$NUM_TASKS \
-    --gpus-per-task=$NUM_GPUS_PER_TASK \
-    --cpus-per-task=$NUM_CPUS_PER_TASK \
-    --mem=$TOTAL_CPU_MEMORY \
-    --time=$TIME_LIMIT \
+    --nodes=$NODES \
+    --ntasks=$NTASKS \
+    --gpus-per-task=$GPUS_PER_TASK \
+    --cpus-per-task=$CPUS_PER_TASK \
+    --constraint=$CONSTRAINT \
+    --mem=$MEM \
+    --time=$TIME \
     --output=./results/logs/job_%j.txt \
     --error=./results/logs/job_%j.err \
     --wrap="srun apptainer exec --nv ${SIF_IMAGE} ${PYTHON_WRAPPER_CALL} \
-        --encrypted-data-path \"${ENCRYPTED_FILE}\" \
+        --encrypted-data-path \"${ENCRYPTED_DATA_PATH}\" \
         --remote-env-path \"${REMOTE_ENV_PATH}\" \
-        --key-name ${KEY_VAR_NAME} \
+        --key-name ${KEY_NAME} \
         --hostname ${HOSTNAME} \
         --username ${USERNAME} \
-        --password \"${SSH_PASSWORD}\""
-
-echo "Job submitted to Slurm. Check status with 'squeue -u \$USER'."
-echo "Output will be in ./results/logs/job_<jobID>.txt"
+        --password \"${PASSWORD}\""

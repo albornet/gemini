@@ -108,6 +108,7 @@ def load_remote_dotenv(
     port: int = 22,
     password: str = None,
     private_key_path: str = None,
+    max_password_trials: int = 3,
 ) -> bool:
     """
     Connects to a remote server via SSH, reads a .env file, and loads its
@@ -119,6 +120,7 @@ def load_remote_dotenv(
         remote_env_path (str): full path to the .env file on the remote server
         port (int): SSH port (default is 22)
         private_key_path (str, optional): path to your private SSH key for auth
+        max_password_trials (int, optional): how many times a password is asked before failing
 
     Returns:
         bool: success of the environment variables loading operation
@@ -141,22 +143,32 @@ def load_remote_dotenv(
             print("Attempting SSH connection with private key...")
             client.connect(**connect_kwargs)
 
-        # If no key, prompt for password
+        # If no key, try using a password
         else:
-            for i in range(3):  # try up to 3 times
-                try:
-                    if password is None:
+            
+            # Case with password given (e.g., on HPC, password taken before excecution)
+            if password is not None:
+                connect_kwargs["password"] = password
+                print(f"Attempting SSH connection with provided password...")
+                client.connect(**connect_kwargs)
+            
+            # Case when script directly prompt for a password (e.g., local run)
+            else:
+                for i in range(max_password_trials):
+                    try:
                         password = getpass.getpass(f"Enter password for {username}@{hostname}: ")
-                    connect_kwargs["password"] = password
-                    print(f"Attempting SSH connection (try {i+1}/3)...")
-                    client.connect(**connect_kwargs)
-                    break  # exit loop on success
-                except paramiko.AuthenticationException:
-                    print("Authentication failed (wrong password?).")
-                    password = None  # reset password to ask again
+                        connect_kwargs["password"] = password
+                        print(f"Attempting SSH connection (try {i+1}/{max_password_trials})...")
+                        client.connect(**connect_kwargs)
+                        break  # exit loop on success
+                    except paramiko.AuthenticationException:
+                        print("Authentication failed (wrong password?).")
+                        password = None  # reset password to ask again
 
-            if password is None:
-                raise paramiko.AuthenticationException("Failed to authenticate after 3 attempts.")
+                if password is None:
+                    raise paramiko.AuthenticationException(
+                        "Failed to authenticate after {max_password_trials} attempts."
+                    )
 
         print("Connection successful. Opening SFTP session...")
         sftp_client = client.open_sftp()

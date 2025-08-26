@@ -32,14 +32,6 @@ def main(args: argparse.Namespace):
     """ Run benchmarks on different generative large language models in separate
         processes to avoid GPU memory leak or accumulation
     """
-    print("DEBUG WARNING REMOVE THE 0.4 IN VLLM INIT")
-    print("DEBUG WARNING REMOVE THE 0.4 IN VLLM INIT")
-    print("DEBUG WARNING REMOVE THE 0.4 IN VLLM INIT")
-    print("DEBUG WARNING REMOVE THE 0.4 IN VLLM INIT")
-    print("DEBUG WARNING REMOVE THE 1 IN MODEL CONFIG")
-    print("DEBUG WARNING REMOVE THE 1 IN MODEL CONFIG")
-    print("DEBUG WARNING REMOVE THE 1 IN MODEL CONFIG")
-    print("DEBUG WARNING REMOVE THE 1 IN MODEL CONFIG")
     # Force a fresh run for each new process
     torch_mp.set_start_method("spawn", force=True)
 
@@ -131,7 +123,7 @@ def record_one_benchmark(
         except ValueError as e:
             if cfg["skip_to_next_model_if_error"]:
                 print(f"The following exception occurred: {e}. Skipping to next model.")
-            raise(e)  # this will return None
+            raise  # this will return None
 
         # Build prompts using the model tokenizer
         # dataset = dataset.copy()  # to avoid modifying the original dataset

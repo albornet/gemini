@@ -5,9 +5,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import json
-from tqdm import tqdm
-from typing import Any, Callable
+from typing import Any
 from collections import Counter
+from collections.abc import Iterable
 from datasets import Dataset
 from huggingface_hub import HfApi
 from sklearn.metrics import confusion_matrix
@@ -19,52 +19,6 @@ POOLED_MODES = [
     {"name": "maj_5", "label": "maj-pooling-5", "pred_pool_mode": "majority", "num_models": 5},
     {"name": "maj_10", "label": "maj-pooling-10", "pred_pool_mode": "majority", "num_models": 10},
 ]
-
-
-def do_bench(
-    bench_fn: Callable,
-    model_path: str,
-    n_repeats: int=10,
-    return_outputs: bool=False,
-) -> tuple[torch.Tensor, torch.Tensor, list[Any]|None]:
-    """
-    Benchmarking function modified from triton.testing to return output
-    https://triton-lang.org/main/python-api/generated/triton.testing.do_bench 
-    
-    Params:
-        bench_fn: function to benchmark
-        n_repeats: number of repetitions for benchmark
-        return_outputs: if True, return outputs of the benchmarked function
-    """    
-    # Initialize events, results storage, and outputs (if required)
-    start_event = torch.cuda.Event(enable_timing=True)
-    end_event = torch.cuda.Event(enable_timing=True)
-    times = torch.empty(n_repeats, dtype=torch.float)
-    memories = torch.empty(n_repeats, dtype=torch.float)
-    outputs = [] if return_outputs else None
-    
-    # Benchmark loop
-    for i in tqdm(range(n_repeats), desc=f"Benchmarking {model_path}"):
-
-        # Clear L2 cache and reset peak memory stats
-        torch.cuda.empty_cache()
-        torch.cuda.reset_peak_memory_stats()
-        
-        # Time the function execution
-        start_event.record()
-        output = bench_fn()
-        end_event.record()
-        torch.cuda.synchronize()
-        
-        # Record the time and memory usage
-        times[i] = start_event.elapsed_time(end_event) / 1000  # in seconds
-        memories[i] = get_gpu_memory_usage_by_pid()  # in GB
-
-        # Collect output if requested
-        if return_outputs:
-            outputs.append(output)
-    
-    return outputs, times, memories
 
 
 def pool_model_predictions(
@@ -82,22 +36,22 @@ def pool_model_predictions(
         if not preds_and_labels: return np.array([]), np.array([])
         y_true_pooled = preds_and_labels[0]["label"]
         y_pred_pooled = preds_and_labels[0]["mRS"]
-    
+
     elif pred_pool_mode == "concatenation":
         y_true_pooled = sum([[v for v in col["label"]] for col in preds_and_labels], [])
         y_pred_pooled = sum([[v for v in col["mRS"]] for col in preds_and_labels], [])
-    
+
     elif pred_pool_mode == "majority":
         if not preds_and_labels: return np.array([]), np.array([])
         y_true_pooled = preds_and_labels[0]["label"]
         y_pred_pooled = []
         num_samples = preds_and_labels[0].num_rows
         preds_by_model = [dataset["mRS"] for dataset in preds_and_labels]
-        
+
         for i in range(num_samples):
             votes = [preds[i] for preds in preds_by_model]
             y_pred_pooled.append(Counter(votes).most_common(1)[0][0])
-    
+
     else:
         raise ValueError("Invalid pooling mode (single, concatenation, majority)")
 
@@ -245,11 +199,11 @@ def compute_and_save_metrics(
             "unit": "GB", "max_y": 60.0, "loc": (0, 2), "color": "tab:blue",
         },
         "Time/sample": {
-            "values": benchmark_results["times"],
+            "values": benchmark_results["time"],
             "unit": "s", "max_y": 100.0, "loc": (0, 3), "color": "tab:green",
         },
     }
-    
+
     # Save plotted data to a handy json file
     metric_dict = convert_to_json_serializable(metric_dict)
     json_path = output_path.replace(".csv", ".json")
@@ -318,7 +272,7 @@ def plot_metrics(metric_path: str) -> None:
         plot_values = plot_dict["values"]
         mean = np.mean(plot_values)
         bar_kwargs = {"capsize": 5, "alpha": 0.75, "color": plot_dict["color"]}
-        if len(plot_values) > 1:
+        if isinstance(plot_values, Iterable) and len(plot_values) > 1:
             bar_kwargs["yerr"] = np.std(plot_values, ddof=1) / np.sqrt(len(plot_values))
         else:
             bar_kwargs["yerr"] = None

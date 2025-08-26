@@ -131,22 +131,24 @@ def create_output_guide(
 def extract_structured_output(
     sample: dict[str, Any],
     output_schema_model: Type[BaseModel],
+    col_to_structure: str = "output_text",
 ) -> dict[str, Any]:
     """
     Extracts structured output from raw model output using a multi-stage
     lenient parsing strategy.
 
     Args:
-        sample (dict[str, Any]): The sample containing model output.
-        output_schema_model (Type[BaseModel]): The Pydantic model for validation.
+        sample (dict[str, Any]): Sample containing model output.
+        output_schema_model (Type[BaseModel]): Pydantic model for validation.
+        col_to_structure (str): Dataset column whose value needs to be structured.
     
     Returns:
         dict[str, Any]: Structured and validated output from the LLM.
     """
-    raw_output = sample.get("output_text")
+    raw_output = sample.get(col_to_structure)
     if not isinstance(raw_output, str) or not raw_output.strip():
         # Handle cases where output is missing or empty
-        print("Warning: 'output_text' is missing or empty. Returning default values.")
+        print("Warning: Missing or empty column to structure. Returning default.")
         return _get_default_values(output_schema_model)
 
     # Direct pydantic parse
@@ -267,7 +269,7 @@ def _extract_field_with_regex(
         if match:
             return match.group(1) == 'true'
         return None
-    
+
     return None
 
 
@@ -283,5 +285,5 @@ def _get_default_values(model: Type[BaseModel]) -> dict[str, Any]:
             defaults[name] = field.default
         else:
             defaults[name] = None  # for required fields with no default
-    
+
     return defaults

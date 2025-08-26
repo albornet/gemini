@@ -10,8 +10,8 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 from llama_cpp import Llama
 from vllm import LLM
 from datasets import Dataset
-from src.models.llm_benchmark import (
-    do_bench,
+from src.models.llm_evaluation import (
+    get_gpu_memory_usage_by_pid,
     compute_and_save_metrics,
     plot_metrics,
     print_gpu_info,
@@ -119,7 +119,7 @@ def record_one_benchmark(
 
         # Initialize model with the required backend
         try:
-            model, tokenizer = get_model_and_tokenizer(**cfg)
+            model, tokenizer = get_model_and_tokenizer(**cfg, debug=debug)
         except ValueError as e:
             if cfg["skip_to_next_model_if_error"]:
                 print(f"The following exception occurred: {e}. Skipping to next model.")
@@ -133,14 +133,12 @@ def record_one_benchmark(
         )
 
         # Record results obtained with the selected model
-        n_inference_repeats = 2 if debug else cfg["n_inference_repeats"]
+        if debug: cfg["n_inference_repeats"] = 2
         benchmark_results = benchmark_one_model(
             cfg=cfg,
             dataset=dataset,
             model=model,
-            model_path=cfg["model_path"],
             tokenizer=tokenizer,
-            n_inference_repeats=n_inference_repeats,
         )
 
     # Compute and save benchmark results
@@ -151,7 +149,6 @@ def record_one_benchmark(
     if "tokenizer" in locals(): del tokenizer
     if "model" in locals(): del model
     if torch_dist.is_initialized(): torch_dist.destroy_process_group()
-    torch.cuda.synchronize()
     torch.cuda.empty_cache()
     gc.collect()
 
@@ -186,41 +183,40 @@ def benchmark_one_model(
     cfg: dict[str, Any],
     dataset: Dataset,
     model: AutoModelForCausalLM|LLM|Llama,
-    model_path: str,
     tokenizer: AutoTokenizer,
-    n_inference_repeats: int,
-) -> dict:
+) -> dict[str, Dataset|float]:
     """
-    Prompt a large language model with medical questions and computes metrics
-    about computation time, GPU memory usage, and error rate
+    Prompt a generative LLM with medical questions and computes metrics
+    about computation time and GPU memory usage
+    https://triton-lang.org/main/python-api/generated/triton.testing.do_bench
 
     Args:
+        cfg (dict): inference configuration parameters
         model (AutoModelForCausalLM): actual LLM doing inference in the benchmark   
         tokenizer (AutoTokenizer): tokenizer used by the LLM
-        model_path (str): path to identify and save the model
 
     Returns:
-        dict: benchmark metrics including time and memory usage
+        Dataset: model outputs, with computation time and GPU memory usage
     """
-    # Extract data while monitoring computation time and GPU memory usage
-    bench_fn = lambda: process_samples(dataset, model, tokenizer, **cfg)
-    outputs, times, memories = do_bench(
-        bench_fn=bench_fn,
-        model_path=model_path,
-        n_repeats=n_inference_repeats,
-        return_outputs=True,
-    )
-    times = times / len(dataset)  # since we want time per sample
+    # Initialize events, clear cache and reset peak memory stats
+    start_event = torch.cuda.Event(enable_timing=True)
+    end_event = torch.cuda.Event(enable_timing=True)
+    torch.cuda.empty_cache()
+    torch.cuda.reset_peak_memory_stats()
 
-    # Combine all outputs and add them to the input dataset
-    common_cols = set(dataset.column_names)
-    for i, output_ds in enumerate(outputs):
-        for col in output_ds.column_names:
-            if col not in common_cols:
-                dataset = dataset.add_column(f"{col}_{i:03d}", output_ds[col])
+    # Time execution time for processing samples
+    start_event.record()
+    dataset_with_outputs = process_samples(dataset, model, tokenizer, **cfg)
+    end_event.record()
+    torch.cuda.synchronize()
+
+    # Record the time and memory usage
+    time = start_event.elapsed_time(end_event) / 1000  # in seconds
+    time = time / len(dataset)  # time per sample -> TODO: PER MODEL INFERENCE?
+    memory = get_gpu_memory_usage_by_pid()  # in GB
 
     # Return benchmark results for metric computation and plotting
-    return {"dataset": dataset, "times": times, "memories": memories}
+    return {"dataset": dataset_with_outputs, "time": time, "memory": memory}
 
 
 if __name__ == "__main__":

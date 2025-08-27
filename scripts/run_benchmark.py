@@ -96,7 +96,7 @@ def load_data_formatted_for_benchmarking(
 
     # Benchmark the chosen model
     dataset = Dataset.from_pandas(df_data)
-    if args.debug: dataset = Dataset.from_dict(mapping=dataset[:5])
+    if args.debug: dataset = Dataset.from_dict(mapping=dataset[:1000])
 
     return dataset
 
@@ -133,7 +133,6 @@ def record_one_benchmark(
         )
 
         # Record results obtained with the selected model
-        if debug: cfg["n_inference_repeats"] = 2
         benchmark_results = benchmark_one_model(
             cfg=cfg,
             dataset=dataset,
@@ -212,7 +211,7 @@ def benchmark_one_model(
 
     # Record the time and memory usage
     time = start_event.elapsed_time(end_event) / 1000  # in seconds
-    time = time / len(dataset)  # time per sample -> TODO: PER MODEL INFERENCE?
+    time = time / len(dataset) / cfg["n_inference_repeats"]  # time per sample and inference
     memory = get_gpu_memory_usage_by_pid()  # in GB
 
     # Return benchmark results for metric computation and plotting

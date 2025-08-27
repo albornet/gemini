@@ -9,9 +9,10 @@
 
 # Slurm job configuration
 JOB_NAME=gemini-inference
-PARTITION=private-teodoro-gpu 
+PARTITION=private-teodoro-gpu
+TIME=2-00:00:00
 # PARTITION=shared-gpu
-TIME=2-00:00:00  # 2-00:00:00
+# TIME=0-00:10:00
 MEM=64gb
 NODES=1
 NTASKS=1
@@ -52,6 +53,7 @@ sbatch \
     --output=./results/logs/job_%j.txt \
     --error=./results/logs/job_%j.err \
     --wrap="srun apptainer exec --nv ${SIF_IMAGE} ${PYTHON_WRAPPER_CALL} \
+        --debug \
         --encrypted-data-path \"${ENCRYPTED_DATA_PATH}\" \
         --remote-env-path \"${REMOTE_ENV_PATH}\" \
         --key-name ${KEY_NAME} \

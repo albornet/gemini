@@ -39,9 +39,8 @@ def get_model_and_tokenizer(
                 model_args.update({"model": model_file_path, "tokenizer": tokenizer_path})
             else:
                 model_args.update({"model": model_path, "quantization": quant_method})
-            
-            gpu_memory_utilization = 0.3 if debug else 0.9  # 0.9 is vLLM's default
-            model = LLM(**model_args, gpu_memory_utilization=gpu_memory_utilization)
+
+            model = LLM(**model_args)
             tokenizer = model.get_tokenizer()
             cache_path = model.llm_engine.model_config.model
             # cache_path = model.llm_engine.model_config.served_model_name

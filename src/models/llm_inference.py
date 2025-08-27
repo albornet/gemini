@@ -5,6 +5,7 @@ from vllm import LLM, SamplingParams, RequestOutput
 from tqdm import tqdm
 from typing import Any
 from functools import partial
+from pydantic import BaseModel
 
 from src.data.output_guiding import (
     create_pydantic_model_from_schema_dict,
@@ -187,15 +188,34 @@ def process_samples(
         column_name = f"output_text_{i:03d}"
         dataset = dataset.add_column(name=column_name, column=model_outputs)
 
-        # Add structured output, keeping the model index in the output column
-        def mapping_wrapper(sample):
-            structured_dict = extract_structured_output(
-                sample=sample,
-                output_schema_model=output_schema_model,
-                col_to_structure=column_name,
-            )
-            return {f"{k}_{i:03d}": v for k, v in structured_dict.items()}
-        
-        dataset = dataset.map(mapping_wrapper, desc="Extracting model predictions")
+        # Define function to add structured output, keeping the model index in the output column
+        mapping_fn = partial(
+            _map_and_structure_output,
+            output_schema_model=output_schema_model,
+            col_to_structure=column_name,
+            inference_idx=i,
+        )
+
+        dataset = dataset.map(mapping_fn, desc="Extracting model predictions")
 
     return dataset
+
+
+def _map_and_structure_output(
+    sample: dict[str, Any],
+    output_schema_model: type[BaseModel], # Should be a pydantic model class
+    col_to_structure: str,
+    inference_idx: int,
+) -> dict[str, Any]:
+    """
+    Extracts structured data from a single sample's text output and add the index
+    of the inference that generated that output
+    """
+    structured_dict = extract_structured_output(
+        sample=sample,
+        output_schema_model=output_schema_model,
+        col_to_structure=col_to_structure,
+    )
+
+    # Add the inference index to make column names unique
+    return {f"{k}_{inference_idx:03d}": v for k, v in structured_dict.items()}

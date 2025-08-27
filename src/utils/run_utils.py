@@ -5,13 +5,7 @@ from argparse import ArgumentParser
 
 
 def add_model_arguments(parser: ArgumentParser) -> None:
-    """ Parse and validate command line arguments
-    
-    Returns:
-        Namespace containing:
-        - runtype: str (very_small, small, big, all)
-        - debug: bool
-        - plot_only: bool
+    """ Parse and validate model arguments
     """
     model_group = parser.add_argument_group(
         title="Model configuration",

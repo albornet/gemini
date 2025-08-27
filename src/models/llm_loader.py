@@ -33,7 +33,7 @@ def get_model_and_tokenizer(
                 "trust_remote_code": True,
                 "max_model_len": max_context_length,
             }
-            
+
             # Check for arguments specific to the quantization method
             if quant_method == "bnb":
                 raise ValueError(f"vLLM does not support format {quant_method}")
@@ -47,6 +47,7 @@ def get_model_and_tokenizer(
                     model_args.update({"dtype": "float16", "quantization": "awq_marlin"})
 
             # Load model and tokenizer
+            # model = LLM(**model_args, gpu_memory_utilization=0.3)
             model = LLM(**model_args)
             tokenizer = model.get_tokenizer()
             cache_path = model.llm_engine.model_config.model

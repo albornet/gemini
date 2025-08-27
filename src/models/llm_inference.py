@@ -140,7 +140,7 @@ def process_samples(
     inference_backend: str,
     n_inference_repeats: int,
     use_output_guide: bool = False,
-    output_schema: dict[str, Any] | None = None,
+    output_schema_dict: dict[str, Any] | None = None,
     output_schema_name: str | None = None,
     max_new_tokens: int = 512,
     temperature: float = 1.0,
@@ -150,11 +150,26 @@ def process_samples(
     """
     Run inference on dataset samples using vLLM, llama-cpp, or HuggingFace backends.
     """
-    # Build output guide if requested
+    # # Remove any reasoning field from output schema for an already reasoning model
+    # THIS IS NOT IMPLEMENTED YET HERE BECAUSE I DID NOT FIGURE OUT WHETHER OR NOT
+    # QWEN3-LIKE MODELS CAN BE RUN BOTH WITH STRUCTURED OUTPUT GUIDING AND ENABLE
+    # THINKING IN VLLM!!
+    # is_reasoning = ("enable_thinking" in model.get_tokenizer().chat_template)
+    # if is_reasoning:
+    #     if "reasoning" in output_schema_dict:
+    #         del output_schema_dict["reasoning"]
+    #         print("Removed 'reasoning' field from output schema for reasoning model.")
+    
+    # Build output schema model for extracting data from the LLM's output
+    output_schema_model = create_pydantic_model_from_schema_dict(
+        schema_dict=output_schema_dict,
+        model_name=output_schema_name,
+    )
+
+    # Build output guide if requested (i.e., output schema influences LLM's inference)
     output_guide = create_output_guide(
         inference_backend=inference_backend,
-        output_schema_dict=output_schema,
-        output_schema_name=output_schema_name,
+        output_schema_model=output_schema_model,
     ) if use_output_guide else None
 
     # Select inference backend
@@ -175,12 +190,8 @@ def process_samples(
         top_p=top_p,
         output_guide=output_guide,
     )  # -> this is a list of n_sample lists of shape n_inference_repeats
-
-    # Add raw output text and structured outputs to the dataset
-    output_schema_model = create_pydantic_model_from_schema_dict(
-        schema_dict=output_schema,
-        model_name=output_schema_name,
-    )
+    
+    # Extract Pydantic style output schema from the configuration
     transposed_output_texts = list(zip(*output_texts))  # per-model list
     for i, model_outputs in enumerate(transposed_output_texts):
 

@@ -1,5 +1,5 @@
 output_schema_name: PatientInfoSchema
-output_schema:
+output_schema_dict:
   reasoning:
     title: Reasoning
     type: string  # mapped to python type "str"

@@ -1,6 +1,7 @@
 import os
 import gc
-import argparse    
+import argparse
+import pandas as pd
 from typing import Any
 from functools import partial
 import torch
@@ -59,12 +60,15 @@ def main(args: argparse.Namespace):
 
 def load_data_formatted_for_benchmarking(
     args: argparse.Namespace,
-    remove_samples_without_label: bool = False,
-    sample_labels_to_remove: list[str] = ["No FU", "No FU yet"],
-    input_label_map: dict = {
+    input_label_key_map: dict = {
         "Anonymised letter": "input_text",
         "Label_student": "label",
     },
+    label_value_map: dict = {
+        "No FU": float("nan"),
+        "No FU yet": float("nan"),
+    },
+    remove_samples_without_label: bool = False,
 ) -> Dataset:
     """
     Load and preprocess data for benchmarking
@@ -84,25 +88,41 @@ def load_data_formatted_for_benchmarking(
 
     # Rename fields of interest for benchmarking
     try:
-        df_data.rename(columns=input_label_map, inplace=True)
+        df_data.rename(columns=input_label_key_map, inplace=True)
     except KeyError as e:
         print(f"Error: Missing expected column after renaming: {e}")
-        print("Please check 'input_label_map' in your configuration and ensure it matches the dataset.")
+        print("Please check 'input_label_key_map' in your configuration and ensure it matches the dataset.")
         raise
 
-    # Filter out samples without labels if specified
+    # Replace label values and / or filter out samples without labels if specified
+    df_data["label"] = df_data["label"].replace(label_value_map)
     if remove_samples_without_label:
         print("Filtering out samples without labels.")
         df_data = df_data.dropna(subset=["label"])
-    if len(sample_labels_to_remove) > 0:
-        print(f"Filtering out samples with labels: {sample_labels_to_remove}")
-        df_data = df_data[~df_data["label"].isin(sample_labels_to_remove)]
 
     # Benchmark the chosen model
+    if args.debug: df_data = sample_small_balanced_dataset(df_data)
     dataset = Dataset.from_pandas(df_data)
-    if args.debug: dataset = Dataset.from_dict(mapping=dataset[:1000])
-
     return dataset
+
+
+def sample_small_balanced_dataset(
+    df_data: pd.DataFrame,
+    min_samples_per_class: int = 200,
+) -> pd.DataFrame:
+    """
+    Select a small portion of the data that has more or less balanced classes
+    """
+    print("Sampling a small, balanced dataset for debugging.")
+    df_data = df_data.groupby("label", group_keys=False)
+    df_data = df_data.apply(
+        lambda x: x.sample(n=min(len(x), min_samples_per_class)), 
+        include_groups=True,
+    )
+    df_data = df_data.sample(frac=1)
+    df_data = df_data.reset_index(drop=True)
+    
+    return df_data
 
 
 def record_one_benchmark(

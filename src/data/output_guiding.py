@@ -104,26 +104,19 @@ def create_pydantic_model_from_schema_dict(
 
 def create_output_guide(
     inference_backend: str,
-    output_schema_dict: dict[str, Any],
-    output_schema_name: str,
+    output_schema_model: Type[BaseModel],
 ) -> Union[dict[str, Any], GuidedDecodingParams, Type[BaseModel]]:
     """ Dynamically creates a pydantic BaseModel class from yaml configuration
     """
-    # Extract Pydantic style output schema from the configuration
-    output_schema = create_pydantic_model_from_schema_dict(
-        schema_dict=output_schema_dict,
-        model_name=output_schema_name,
-    )
-
     # Return an output guide corresponding to the backend used for LLM inference
     match inference_backend:
         case "llama-cpp":
-            return output_schema.model_json_schema()
+            return output_schema_model.model_json_schema()
         case "vllm":
-            json_schema = output_schema.model_json_schema()
+            json_schema = output_schema_model.model_json_schema()
             return GuidedDecodingParams(json=json_schema)
         case "hf":
-            return output_schema  # not sure how to handle the classif HugginfFace case
+            return output_schema_model  # not sure how to handle this case
         case _:
             raise ValueError(f"Unsupported inference backend: {inference_backend}")
 

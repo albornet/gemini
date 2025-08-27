@@ -38,10 +38,17 @@ def build_prompt(
     # Apply the chat template if a tokenizer is provided
     prompt_str = None
     if tokenizer is not None:
+        # Note: apply_chat_template will use "enable_thinking = True" as default,
+        # which means that if the model is a thinking model, it will by default
+        # reason before giving an anwer. This should be taken into account when
+        # designing the output guide! In future versions of vLLM, I should check
+        # whether I can use this to avoid explicitely asking for reasoning, by
+        # using models like Qwen-3 natively!
         prompt_str = tokenizer.apply_chat_template(
             messages,
             tokenize=False,
             add_generation_prompt=True,
+            enable_thinking=False,
         )
 
     return {"messages": messages, "prompt": prompt_str}

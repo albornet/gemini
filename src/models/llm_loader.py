@@ -27,10 +27,14 @@ def get_model_and_tokenizer(
 
         # Using vLLM backend
         case "vllm":
+
+            # Initialize model arguments
             model_args = {
                 "trust_remote_code": True,
                 "max_model_len": max_context_length,
             }
+            
+            # Check for arguments specific to the quantization method
             if quant_method == "bnb":
                 raise ValueError(f"vLLM does not support format {quant_method}")
             elif quant_method == "gguf":
@@ -39,7 +43,10 @@ def get_model_and_tokenizer(
                 model_args.update({"model": model_file_path, "tokenizer": tokenizer_path})
             else:
                 model_args.update({"model": model_path, "quantization": quant_method})
+                if quant_method == "awq":
+                    model_args.update({"dtype": "float16", "quantization": "awq_marlin"})
 
+            # Load model and tokenizer
             model = LLM(**model_args)
             tokenizer = model.get_tokenizer()
             cache_path = model.llm_engine.model_config.model

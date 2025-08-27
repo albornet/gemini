@@ -29,8 +29,9 @@ from src.utils.run_utils import (
 
 
 def main(args: argparse.Namespace):
-    """ Run benchmarks on different generative large language models in separate
-        processes to avoid GPU memory leak or accumulation
+    """
+    Run benchmarks on different generative large language models in separate
+    processes to avoid GPU memory leak or accumulation
     """
     # Force a fresh run for each new process
     torch_mp.set_start_method("spawn", force=True)
@@ -58,7 +59,8 @@ def main(args: argparse.Namespace):
 
 def load_data_formatted_for_benchmarking(
     args: argparse.Namespace,
-    keep_only_samples_with_labels: bool = False,
+    remove_samples_without_label: bool = False,
+    sample_labels_to_remove: list[str] = ["No FU", "No FU yet"],
     input_label_map: dict = {
         "Anonymised letter": "input_text",
         "Label_student": "label",
@@ -88,11 +90,13 @@ def load_data_formatted_for_benchmarking(
         print("Please check 'input_label_map' in your configuration and ensure it matches the dataset.")
         raise
 
-    # Filter out samples without labels if specified (TODO: MAKE THIS MORE GENERAL!)
-    if keep_only_samples_with_labels:
+    # Filter out samples without labels if specified
+    if remove_samples_without_label:
         print("Filtering out samples without labels.")
         df_data = df_data.dropna(subset=["label"])
-        df_data = df_data[~df_data["label"].isin(["No FU", "No FU yet"])]
+    if len(sample_labels_to_remove) > 0:
+        print(f"Filtering out samples with labels: {sample_labels_to_remove}")
+        df_data = df_data[~df_data["label"].isin(sample_labels_to_remove)]
 
     # Benchmark the chosen model
     dataset = Dataset.from_pandas(df_data)

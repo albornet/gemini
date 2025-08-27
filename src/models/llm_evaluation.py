@@ -97,6 +97,12 @@ def _record_metrics(
     """
     Records performance metrics (Error Rate and Distance) for a given set of labels and predictions.
     """
+    # Filter out samples without label (i.e., with y_true != -1)
+    mask = y_true != -1
+    y_true = y_true[mask]
+    y_pred = y_pred[mask]
+
+    # Compute metrics
     error_rate = np.mean(y_true != y_pred, keepdims=True)
     distance = np.mean(np.abs(y_true - y_pred), keepdims=True)
 

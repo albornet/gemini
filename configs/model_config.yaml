@@ -3,9 +3,10 @@ result_dir: "./results"
 dataset_path: ".data/data_2025/processed/dataset.csv"
 
 # Model configuration
-model_path: unsloth/Qwen3-0.6B-GGUF
-quant_method: gguf
-quant_scheme: Q4_K_M
+# model_path: unsloth/Qwen3-0.6B-GGUF
+model_path: Orion-zhen/Qwen3-0.6B-AWQ
+quant_method: awq  # must match above model path!
+quant_scheme: Q4_K_M  # only used for quant_method == gguf
 max_context_length: 16384  # note: maximum tokens in a "lettre de sortie" is 6144
 max_new_tokens: 1024  # note: this corresponds to the maximum generated tokens
 top_p: 0.95

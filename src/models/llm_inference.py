@@ -159,17 +159,12 @@ def process_samples(
     #     if "reasoning" in output_schema_dict:
     #         del output_schema_dict["reasoning"]
     #         print("Removed 'reasoning' field from output schema for reasoning model.")
-    
-    # Build output schema model for extracting data from the LLM's output
-    output_schema_model = create_pydantic_model_from_schema_dict(
-        schema_dict=output_schema_dict,
-        model_name=output_schema_name,
-    )
 
     # Build output guide if requested (i.e., output schema influences LLM's inference)
     output_guide = create_output_guide(
         inference_backend=inference_backend,
-        output_schema_model=output_schema_model,
+        output_schema_dict=output_schema_dict,
+        output_schema_name=output_schema_name,
     ) if use_output_guide else None
 
     # Select inference backend
@@ -192,7 +187,7 @@ def process_samples(
     )  # -> this is a list of n_sample lists of shape n_inference_repeats
     
     # Extract Pydantic style output schema from the configuration
-    transposed_output_texts = list(zip(*output_texts))  # per-model list
+    transposed_output_texts = list(zip(*output_texts))
     for i, model_outputs in enumerate(transposed_output_texts):
 
         # Add raw output text, adding the model index
@@ -202,7 +197,8 @@ def process_samples(
         # Define function to add structured output, keeping the model index in the output column
         mapping_fn = partial(
             _map_and_structure_output,
-            output_schema_model=output_schema_model,
+            output_schema_dict=output_schema_dict,
+            output_schema_name=output_schema_name,
             col_to_structure=column_name,
             inference_idx=i,
         )
@@ -214,7 +210,8 @@ def process_samples(
 
 def _map_and_structure_output(
     sample: dict[str, Any],
-    output_schema_model: type[BaseModel], # Should be a pydantic model class
+    output_schema_dict: dict[str, Any],
+    output_schema_name: str,
     col_to_structure: str,
     inference_idx: int,
 ) -> dict[str, Any]:
@@ -222,6 +219,12 @@ def _map_and_structure_output(
     Extracts structured data from a single sample's text output and add the index
     of the inference that generated that output
     """
+    # ADD THIS LINE: Recreate the model from the serializable inputs
+    output_schema_model = create_pydantic_model_from_schema_dict(
+        schema_dict=output_schema_dict,
+        model_name=output_schema_name,
+    )
+
     structured_dict = extract_structured_output(
         sample=sample,
         output_schema_model=output_schema_model,

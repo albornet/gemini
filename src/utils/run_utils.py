@@ -49,16 +49,16 @@ def add_data_arguments(parser: ArgumentParser) -> None:
     data_group.add_argument(
         "--encrypted-data-path",
         "-ed",
-        default="./data/data_2025/processed/dataset.encrypted.csv",
         type=str,
+        required=True,
         help="Path to the local encrypted data file.",
     )
 
     data_group.add_argument(
         "--curated-data-path",
         "-cd",
-        default="./data/data_2024/processed/dataset.csv",
         type=str,
+        required=True,
         help="Path to the local encrypted data file.",
     )
 

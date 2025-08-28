@@ -10,6 +10,7 @@ from collections import Counter
 from collections.abc import Iterable
 from datasets import Dataset
 from huggingface_hub import HfApi
+from requests.exceptions import ReadTimeout
 from sklearn.metrics import confusion_matrix
 
 POOLED_MODES = [
@@ -145,7 +146,6 @@ def _record_metrics_for_pooling_modes(
             metric_dict.update(metrics)
 
     return y_true_dict, y_pred_dict, metric_dict
-
 
 
 def compute_and_save_metrics(
@@ -348,25 +348,46 @@ def print_gpu_info():
 
 def get_model_number_of_parameters(model_id: str) -> int:
     """
-    Get the number of parameters in a huggingface model, using various methods
+    Get the number of parameters in a huggingface model, using:
+    - First, Hugging Face API metadata
+    - Then, GGUF file metadata
+    - Then, Safetensors metadata
+    - Finally: fallback on regex pattern match using model_id
     """
-    # Load model info from the huggingface API
     api = HfApi()
-    model_info = api.model_info(model_id)
+    model_info = None
 
-    # Try to identify the number of parameters assuming the model is a gguf file
+    # Try fetching metadata
+    try:
+        model_info = api.model_info(model_id, timeout=30)
+    except ReadTimeout:
+        print(f"Timeout error for getting model info of {model_id}")
+
+    # GGUF method
     try:
         return model_info.gguf["total"]
     except Exception:
-        print("Could not identify number of parameters using the gguf method")
         pass
 
-    # Try to identify the number of parameters with a more classic method
+    # Safetensors method
     try:
         return model_info.safetensors.total
-    except:
-        print("Could not identify number of parameters using the hugginface method")
-        return 0
+    except Exception:
+        pass
+
+    # Regex fallback: look for things like "0.6B", "7B", "13B", "70B"
+    match = re.search(r"(\d+(?:\.\d+)?)[ ]?B", model_id, re.IGNORECASE)
+    if match:
+        num = float(match.group(1))
+        return int(num * 1e9)  # Convert B -> parameters
+
+    match = re.search(r"(\d+(?:\.\d+)?)[ ]?M", model_id, re.IGNORECASE)
+    if match:
+        num = float(match.group(1))
+        return int(num * 1e6)  # Convert M -> parameters
+
+    print(f"Could not infer number of parameters for {model_id}, defaulting to 1")
+    return 1
 
 
 def get_model_bits_per_parameter(

@@ -104,10 +104,17 @@ def create_pydantic_model_from_schema_dict(
 
 def create_output_guide(
     inference_backend: str,
-    output_schema_model: Type[BaseModel],
+    output_schema_dict: dict[str, Any],
+    output_schema_name: str,
 ) -> Union[dict[str, Any], GuidedDecodingParams, Type[BaseModel]]:
     """ Dynamically creates a pydantic BaseModel class from yaml configuration
     """
+    # Create output schema model
+    output_schema_model = create_pydantic_model_from_schema_dict(
+        schema_dict=output_schema_dict,
+        model_name=output_schema_name,
+    )
+
     # Return an output guide corresponding to the backend used for LLM inference
     match inference_backend:
         case "llama-cpp":

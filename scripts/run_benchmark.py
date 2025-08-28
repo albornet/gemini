@@ -239,7 +239,8 @@ def benchmark_one_model(
 
     # Record the time and memory usage
     time = start_event.elapsed_time(end_event) / 1000  # in seconds
-    time = time / len(dataset) / cfg["n_inference_repeats"]  # time per sample and inference
+    time = time / len(dataset)  # time per sample
+    # time = time / cfg["n_inference_repeats"]  # time per inference (?)
     memory = get_gpu_memory_usage_by_pid()  # in GB
 
     # Return benchmark results for metric computation and plotting

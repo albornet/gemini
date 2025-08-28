@@ -1,3 +1,4 @@
+import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from vllm import LLM
 from llama_cpp import Llama
@@ -9,10 +10,11 @@ def get_model_and_tokenizer(
     model_path: str,
     inference_backend: str,
     quant_method: str,
-    quant_scheme: str|None=None,
-    max_context_length: int|None=None,
-    use_flash_attention: bool=False,
-    debug: bool=False,
+    quant_scheme: str|None = None,
+    max_context_length: int|None = None,
+    use_flash_attention: bool = False,
+    num_gpus_to_use: int = 1,
+    gpu_memory_utilization: float = 0.9,
     *args, **kwargs,
 ) -> tuple[AutoModelForCausalLM, AutoTokenizer]:
     """
@@ -29,9 +31,15 @@ def get_model_and_tokenizer(
         case "vllm":
 
             # Initialize model arguments
+            max_num_gpus = torch.cuda.device_count()
+            if num_gpus_to_use > max_num_gpus:
+                print("Warning: selected number of GPUs larger than what is available")
+                print(f"Will try to load the model on {max_num_gpus} GPUs")
+                num_gpus_to_use = max_num_gpus
             model_args = {
                 "trust_remote_code": True,
                 "max_model_len": max_context_length,
+                "tensor_parallel_size": num_gpus_to_use,
             }
 
             # Check for arguments specific to the quantization method
@@ -47,8 +55,7 @@ def get_model_and_tokenizer(
                     model_args.update({"dtype": "float16", "quantization": "awq_marlin"})
 
             # Load model and tokenizer
-            # model = LLM(**model_args, gpu_memory_utilization=0.3)
-            model = LLM(**model_args)
+            model = LLM(**model_args, gpu_memory_utilization=gpu_memory_utilization)
             tokenizer = model.get_tokenizer()
             cache_path = model.llm_engine.model_config.model
             # cache_path = model.llm_engine.model_config.served_model_name

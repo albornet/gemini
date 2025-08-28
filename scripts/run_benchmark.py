@@ -66,6 +66,7 @@ def load_data_formatted_for_benchmarking(
     label_value_map: dict = {},
     remove_samples_without_label: bool = False,
     sample_small_dataset: bool = False,
+    min_samples_per_class: int = 200,
 ) -> Dataset:
     """
     Load and preprocess data for benchmarking
@@ -102,7 +103,8 @@ def load_data_formatted_for_benchmarking(
         df_data = df_data.dropna(subset=["label"])
 
     # Benchmark the chosen model
-    if sample_small_dataset: df_data = sample_small_balanced_dataset(df_data)
+    if sample_small_dataset:
+        df_data = sample_small_balanced_dataset(df_data, min_samples_per_class)
     dataset = Dataset.from_pandas(df_data)
     return dataset
 

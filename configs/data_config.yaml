@@ -1,12 +1,13 @@
 # Data and results
 result_dir: "./results"
 data_loading_arguments:
-  use_curated_dataset: True
-  sample_small_dataset: False
-  remove_samples_without_label: False
+  use_curated_dataset: false
+  sample_small_dataset: true
+  remove_samples_without_label: true
+  min_samples_per_class: 20  # for small sample dataset
   input_label_key_map:
     Anonymised letter: input_text
-    Label_student: label
+    Label_extraction: label
   label_value_map:
     No FU: null
     No FU yet: null

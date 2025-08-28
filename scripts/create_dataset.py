@@ -6,7 +6,7 @@ from src.data.encryption import (
     write_pandas_to_encrypted_file,
 )
 
-RAW_DATA_PATH_WITH_LABELS = "data/data_2025/raw/Exploitable anonymised letters with labels.xlsx"
+RAW_DATA_PATH_WITH_LABELS = "data/data_2025/raw/Exploitable anonymised letters with new labels.xlsx"
 RAW_DATA_PATH_WITH_LETTERS = "data/data_2025/raw/Exploitable anonymised letters.xlsx"
 ENCRYPTED_DATASET_PATH = "data/data_2025/processed/dataset.encrypted.csv"
 COLUMNS_TO_KEEP = [
@@ -14,7 +14,7 @@ COLUMNS_TO_KEEP = [
     "creation_date",
     "Age_creation_date",
     "Anonymised letter",
-    "Label_student",
+    "Label_extraction",
 ]
 
 
@@ -77,7 +77,7 @@ def create_dataset(
     # Add student labels to the letters dataset
     df = pd.read_excel(raw_data_path_with_letters)
     df_labels = pd.read_excel(raw_data_path_with_labels)
-    df["Label_student"] = df_labels["Label_student"]
+    df["Label_extraction"] = df_labels["Label_extraction"]
 
     # Keep track of document, remove true patient id, and keep only used columns
     df["document_id"] = df.index
@@ -96,14 +96,14 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Create and encrypt dataset.")
     parser.add_argument(
         "--key_name",
-        "-k",
+        "-kn",
         type=str,
         required=True,
         help="Name of the environment variable for encryption key retrieval.",
     )
     parser.add_argument(
         "--local_env_file_path",
-        "-l",
+        "-lp",
         type=str,
         required=True,
         help="Path to the local environment file storing the encryption key.",

@@ -1,12 +1,5 @@
 #!/bin/bash
 
-#=================================================================================
-# Slurm Submitter Script for Remote Decryption on HPC
-#
-# Prompts for an SSH password on the login node and submits a non-interactive
-# Apptainer/Singularity job to a compute node.
-#=================================================================================
-
 # Slurm job configuration
 JOB_NAME=gemini-inference
 PARTITION=private-teodoro-gpu  # shared-gpu
@@ -33,7 +26,7 @@ REMOTE_ENV_PATH="/home/borneta/Documents/gemini/.env"
 KEY_NAME="GEMINI"
 OUTPUT_FILE="./results/decrypted_data.csv"
 
-# Secure password prompt
+# Password prompt
 echo "Please enter the SSH password for ${USERNAME}@${HOSTNAME}"
 read -s -p "Password: " PASSWORD  # -s flag hides the input
 echo ""  # add a newline for cleaner terminal output

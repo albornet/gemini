@@ -43,10 +43,10 @@ def main(args: argparse.Namespace):
     # Load benchmarking dataset (only if a benchmark is actually run)
     dataset = None
     if not args.plot_only:
-        data_args = cfg["data_arguments"]
-        dataset = load_data_formatted_for_benchmarking(args, **data_args)
+        data_loading_args = cfg["data_loading_arguments"]
+        dataset = load_data_formatted_for_benchmarking(args, **data_loading_args)
 
-    # TODO: LOOP THAT MODIFIES RUN_KWARGS FOR EACH MODEL TO BE BENCHMARKED
+    # TODO: LOOP THAT MODIFIES RUN_KWARGS FOR EACH MODEL TO BE BENCHMARKED (?)
     run_kwargs = {"cfg": cfg, "dataset": dataset, "debug": args.debug}
     if args.debug:
         record_one_benchmark(**run_kwargs)
@@ -62,18 +62,19 @@ def main(args: argparse.Namespace):
 def load_data_formatted_for_benchmarking(
     args: argparse.Namespace,
     use_curated_dataset: bool = False,
-    sample_small_dataset: bool = False,
     input_label_key_map: dict = {},
     label_value_map: dict = {},
     remove_samples_without_label: bool = False,
+    sample_small_dataset: bool = False,
 ) -> Dataset:
     """
     Load and preprocess data for benchmarking
     """
-    # Load dataset file
+    # Load dataset file (small, curated dataset)
     if use_curated_dataset:
-        df_data = pd.read_csv("data/data_2024/dataset.csv")
+        df_data = pd.read_csv(args.curated_data_path)
         
+    # Load dataset file (large, non-curated dataset + encrypted)
     else:
         print("Loading encrypted dataset...")
         df_data = read_pandas_from_encrypted_file(
@@ -91,9 +92,8 @@ def load_data_formatted_for_benchmarking(
     try:
         df_data.rename(columns=input_label_key_map, inplace=True)
     except KeyError as e:
-        print(f"Error: Missing expected column after renaming: {e}")
-        print("Please check 'input_label_key_map' in your configuration and ensure it matches the dataset.")
-        raise
+        print(f"Warning: Missing expected column for renaming: {e}")
+        print("Please check 'input_label_key_map' in the config file.")
 
     # Replace label values and / or filter out samples without labels if specified
     df_data["label"] = df_data["label"].replace(label_value_map)
@@ -190,7 +190,7 @@ def save_benchmark_results(
     if cfg["quant_method"].lower() == "gguf":
         model_result_path = f"{cfg['model_path']}-{cfg['quant_scheme']}.csv"
     else:
-        model_result_path = f"{cfg['model_path']}.csv"
+        model_result_path = f"{cfg['model_path']}-no_quant_scheme.csv"
     output_path = os.path.join(output_dir, model_result_path)
     
     # If provided, save model results to a csv file

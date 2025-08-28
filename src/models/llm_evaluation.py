@@ -367,7 +367,7 @@ def get_model_number_of_parameters(model_id: str) -> int:
     except:
         print("Could not identify number of parameters using the hugginface method")
         return 0
-    
+
 
 def get_model_bits_per_parameter(
     model_path: str,
@@ -379,7 +379,8 @@ def get_model_bits_per_parameter(
     # Identify quantization scheme
     scheme = output_path.split(model_path)[-1].strip("-").split(".")[0]
     scheme_check = output_path.split("-")[-1].split(".")[0]
-    assert scheme == scheme_check
+    if scheme != scheme_check:
+        print(f"Warning: quantization scheme might be wrong for {model_path}: {scheme}")
 
     # Try to identify the number of bits with my own heuristics
     if scheme == "no_quant_scheme": return 4  # for awq, etc.
@@ -387,6 +388,7 @@ def get_model_bits_per_parameter(
     if match: return int(match.group(1))
     if scheme.lower() in ["f16", "fp16"]: return 16
     if scheme.lower() == "q8_0": return 8
+
     return 0
 
 

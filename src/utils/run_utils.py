@@ -41,10 +41,24 @@ def add_data_arguments(parser: ArgumentParser) -> None:
     )
 
     data_group.add_argument(
+        "-dc", "--data-config-path",
+        default="configs/data_config.yaml",
+        help="Path to the data configuration file"
+    )
+
+    data_group.add_argument(
         "--encrypted-data-path",
         "-ed",
+        default="./data/data_2025/processed/dataset.encrypted.csv",
         type=str,
-        required=True,
+        help="Path to the local encrypted data file.",
+    )
+
+    data_group.add_argument(
+        "--curated-data-path",
+        "-cd",
+        default="./data/data_2024/processed/dataset.csv",
+        type=str,
         help="Path to the local encrypted data file.",
     )
 
@@ -55,6 +69,7 @@ def add_data_arguments(parser: ArgumentParser) -> None:
         required=True,
         help="Name of the encryption key variable in the .env file on the remote server.",
     )
+
     data_group.add_argument(
         "--hostname",
         "-hn",
@@ -120,11 +135,12 @@ def load_config_files(script_args) -> dict:
     """
     # Load configurations
     model_config = _load_config_from_yaml(script_args.model_config_path)
+    data_config = _load_config_from_yaml(script_args.data_config_path)
     prompt_config = _load_config_from_yaml(script_args.prompt_config_path)
     output_config = _load_config_from_yaml(script_args.output_config_path)
 
     # Combine all configurations into a single dictionary
-    run_config = {**model_config, **prompt_config, **output_config}
+    run_config = {**model_config, **data_config, **prompt_config, **output_config}
 
     return run_config
 

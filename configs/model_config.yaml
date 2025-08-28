@@ -1,6 +1,17 @@
 # Data and results
 result_dir: "./results"
-dataset_path: ".data/data_2025/processed/dataset.csv"
+data_arguments:
+  dataset_path: ".data/data_2025/processed/dataset.csv"
+  curated_dataset_path: ".data/data_2025/processed/dataset.csv"
+  use_curated_dataset: True
+  sample_small_dataset: False
+  remove_samples_without_label: False
+  input_label_key_map:
+    Anonymised letter: input_text
+    Label_student: label
+  label_value_map:
+    No FU: null
+    No FU yet: null
 
 # Model configuration
 # model_path: unsloth/Qwen3-0.6B-GGUF

@@ -10,7 +10,7 @@
 # Slurm job configuration
 JOB_NAME=gemini-inference
 PARTITION=private-teodoro-gpu
-TIME=2-00:00:00
+TIME=0-02:00:00
 # PARTITION=shared-gpu
 # TIME=0-00:10:00
 MEM=64gb

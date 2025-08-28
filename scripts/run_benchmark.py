@@ -43,7 +43,8 @@ def main(args: argparse.Namespace):
     # Load benchmarking dataset (only if a benchmark is actually run)
     dataset = None
     if not args.plot_only:
-        dataset = load_data_formatted_for_benchmarking(args)
+        data_args = cfg["data_arguments"]
+        dataset = load_data_formatted_for_benchmarking(args, **data_args)
 
     # TODO: LOOP THAT MODIFIES RUN_KWARGS FOR EACH MODEL TO BE BENCHMARKED
     run_kwargs = {"cfg": cfg, "dataset": dataset, "debug": args.debug}
@@ -60,31 +61,31 @@ def main(args: argparse.Namespace):
 
 def load_data_formatted_for_benchmarking(
     args: argparse.Namespace,
-    input_label_key_map: dict = {
-        "Anonymised letter": "input_text",
-        "Label_student": "label",
-    },
-    label_value_map: dict = {
-        "No FU": float("nan"),
-        "No FU yet": float("nan"),
-    },
+    use_curated_dataset: bool = False,
+    sample_small_dataset: bool = False,
+    input_label_key_map: dict = {},
+    label_value_map: dict = {},
     remove_samples_without_label: bool = False,
 ) -> Dataset:
     """
     Load and preprocess data for benchmarking
     """
-    # Load dataset from encrypted file
-    print("Loading encrypted dataset...")
-    df_data = read_pandas_from_encrypted_file(
-        encrypted_file_path=args.encrypted_data_path,
-        encryption_key_var_name=args.key_name,
-        hostname=args.hostname,
-        username=args.username,
-        remote_env_path=args.remote_env_path,
-        port=args.port,
-        password=args.password,
-        private_key_path=args.private_key_path,
-    )
+    # Load dataset file
+    if use_curated_dataset:
+        df_data = pd.read_csv("data/data_2024/dataset.csv")
+        
+    else:
+        print("Loading encrypted dataset...")
+        df_data = read_pandas_from_encrypted_file(
+            encrypted_file_path=args.encrypted_data_path,
+            encryption_key_var_name=args.key_name,
+            hostname=args.hostname,
+            username=args.username,
+            remote_env_path=args.remote_env_path,
+            port=args.port,
+            password=args.password,
+            private_key_path=args.private_key_path,
+        )
 
     # Rename fields of interest for benchmarking
     try:
@@ -101,7 +102,7 @@ def load_data_formatted_for_benchmarking(
         df_data = df_data.dropna(subset=["label"])
 
     # Benchmark the chosen model
-    if args.debug: df_data = sample_small_balanced_dataset(df_data)
+    if sample_small_dataset: df_data = sample_small_balanced_dataset(df_data)
     dataset = Dataset.from_pandas(df_data)
     return dataset
 
@@ -186,7 +187,10 @@ def save_benchmark_results(
     output_subdir = cfg["inference_backend"]
     if cfg["use_output_guide"]: output_subdir = f"{output_subdir}_guided"
     output_dir = os.path.join(cfg["result_dir"], output_subdir)
-    model_result_path = f"{cfg['model_path']}-{cfg['quant_scheme']}.csv"
+    if cfg["quant_method"].lower() == "gguf":
+        model_result_path = f"{cfg['model_path']}-{cfg['quant_scheme']}.csv"
+    else:
+        model_result_path = f"{cfg['model_path']}.csv"
     output_path = os.path.join(output_dir, model_result_path)
     
     # If provided, save model results to a csv file

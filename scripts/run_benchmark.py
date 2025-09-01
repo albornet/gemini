@@ -62,8 +62,6 @@ def main(args: argparse.Namespace):
 def load_data_formatted_for_benchmarking(
     args: argparse.Namespace,
     use_curated_dataset: bool = False,
-    input_label_key_map: dict = {},
-    label_value_map: dict = {},
     remove_samples_without_label: bool = False,
     sample_small_dataset: bool = False,
     min_samples_per_class: int = 200,
@@ -89,15 +87,11 @@ def load_data_formatted_for_benchmarking(
             private_key_path=args.private_key_path,
         )
 
-    # Rename fields of interest for benchmarking
-    try:
-        df_data.rename(columns=input_label_key_map, inplace=True)
-    except KeyError as e:
-        print(f"Warning: Missing expected column for renaming: {e}")
-        print("Please check 'input_label_key_map' in the config file.")
+    # Check for the presence of benchmarking fields
+    if "input_text" not in df_data.columns or "label" not in df_data.columns:
+        raise KeyError("Missing expected columns: 'input_text', 'label'")
 
     # Replace label values and / or filter out samples without labels if specified
-    df_data["label"] = df_data["label"].replace(label_value_map)
     if remove_samples_without_label:
         print("Filtering out samples without labels.")
         df_data = df_data.dropna(subset=["label"])

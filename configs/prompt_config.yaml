@@ -11,8 +11,8 @@ prompt_templates:
 
 context_data:
   task_description: |
-    Tu es un neuro-chirurgien et ta tâche est d’identifier le score sur l’Échelle de Rankin Modifiée (mRS) du patient en fonction de son état après sa sortie,
-    tel qu'il est décrit dans la lettre de sortie rédigée par un autre médecin.
+    Tu es un neuro-chirurgien et ta tâche est d’identifier le score sur l’Échelle de Rankin Modifiée (mRS) du patient en fonction de son état,
+    tel qu'il est décrit dans le texte d'entrée après la rédaction de celui-ci, généralement une lettre de sortie rédigée par un autre médecin.
   domain_knowledge: |
     L'Échelle de Rankin Modifiée (mRS) est utilisée pour mesurer le degré d'incapacité chez les patients ayant subi un accident vasculaire cérébral (AVC) :
     0 : Aucun symptôme
@@ -23,8 +23,17 @@ context_data:
     5 : Incapacité sévère ; alité, incontinent et nécessitant des soins infirmiers constants et une attention continue
     6 : Décédé
   output_specifications: |
-    Ta réponse doit être JSON conforme au format suivant :
+    Ta réponse doit être un objet JSON conforme au format suivant :
     {
       "reasoning": "<comment tu as déterminé le mRS>",
       "mRS": <nombre entre 0 et 6>,
     }
+  # output_specifications: |
+  #   Notes :
+  #   - Il est possible qu'un texte d'entrée ne soit pas une lettre de sortie. Si tu peux en déduire un mRS tout de même, fais-le. Sinon, réponds "-1".
+  #   - Il est possible que le mRS soit explicité dans le texte, auquel cas tu peux directement reporter ce chiffre.
+  #   - Finalement, ta réponse doit être un objet JSON conforme au format suivant :
+  #   {
+  #     "reasoning": "<comment tu as déterminé le mRS>",
+  #     "mRS": <nombre entre 0 et 6>,
+  #   }

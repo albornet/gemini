@@ -15,12 +15,13 @@ output_schema_dict:
     constraints:
       minimum: 0  # mapped to pydantic "ge"
       maximum: 6  # mapped to pydantic "le"
+  # /!\ OTHER EXAMPLES (SPECIFIC) /!\
   # visit_date:
   #   type: string  # mapped to python type "str"
   #   description: Date au format jj/mm/aaaa
   #   constraints:
   #     pattern: ^(0[1-9]|[12][0-9]|3[01])/(0[1-9]|1[0-2])/\\d{4}$  # note: backslash escaped
-  # /!\ OTHER EXAMPLES /!\
+  # /!\ OTHER EXAMPLES (GENERAL) /!\
   # completion_ratio:
   #   type: number  # mapped to python type "float"
   #   description: "Ratio of completion, must be between 0 and 1 (exclusive)

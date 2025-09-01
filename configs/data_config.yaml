@@ -1,13 +1,7 @@
 # Data and results
 result_dir: "./results"
 data_loading_arguments:
-  use_curated_dataset: false
-  sample_small_dataset: true
+  use_curated_dataset: false  # the dataset from 2024 with 50 samples
   remove_samples_without_label: true
-  min_samples_per_class: 20  # for small sample dataset
-  input_label_key_map:
-    Anonymised letter: input_text
-    Label_extraction: label
-  label_value_map:
-    No FU: null
-    No FU yet: null
+  sample_small_dataset: true
+  min_samples_per_class: 10  # for small sample dataset

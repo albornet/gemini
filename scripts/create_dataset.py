@@ -7,7 +7,6 @@ from src.data.encryption import (
 )
 
 RAW_DATA_PATH_WITH_LABELS = "data/data_2025/raw/Exploitable anonymised letters with new labels.xlsx"
-RAW_DATA_PATH_WITH_LETTERS = "data/data_2025/raw/Exploitable anonymised letters.xlsx"
 ENCRYPTED_DATASET_PATH = "data/data_2025/processed/dataset.encrypted.csv"
 COLUMNS_TO_KEEP = [
     "patient_id",
@@ -16,6 +15,14 @@ COLUMNS_TO_KEEP = [
     "Anonymised letter",
     "Label_extraction",
 ]
+INPUT_LABEL_KEY_MAP = {
+    "Anonymised letter": "input_text",
+    "Label_extraction": "label",
+}
+LABEL_VALUE_MAP = {
+    "No FU": float("nan"),
+    "No FU yet": float("nan"),
+}
 
 
 def main(args):
@@ -26,7 +33,6 @@ def main(args):
     print("Creating dataset from raw data...")
     df = create_dataset(
         raw_data_path_with_labels=RAW_DATA_PATH_WITH_LABELS,
-        raw_data_path_with_letters=RAW_DATA_PATH_WITH_LETTERS,
         columns_to_keep=COLUMNS_TO_KEEP,
     )
 
@@ -63,7 +69,6 @@ def main(args):
 
 def create_dataset(
     raw_data_path_with_labels: str,
-    raw_data_path_with_letters: str,
     columns_to_keep: list,
     output_dataset_path: str|None = None,
 ) -> pd.DataFrame:
@@ -74,12 +79,8 @@ def create_dataset(
         raw_data_path (str): The path to the raw Excel data file.
         csv_data_path (str): The path where the processed CSV data will be saved.
     """
-    # Add student labels to the letters dataset
-    df = pd.read_excel(raw_data_path_with_letters)
-    df_labels = pd.read_excel(raw_data_path_with_labels)
-    df["Label_extraction"] = df_labels["Label_extraction"]
-
     # Keep track of document, remove true patient id, and keep only used columns
+    df = pd.read_excel(raw_data_path_with_labels)
     df["document_id"] = df.index
     df["patient_id"] = df.groupby("patient_id").ngroup()
     df = df[columns_to_keep]
@@ -88,6 +89,12 @@ def create_dataset(
     if output_dataset_path is not None:
         df.to_csv(output_dataset_path, index=False)
         print(f"Dataset saved (not encrypted) to {output_dataset_path}")
+
+    # Format data fields and label values
+    if INPUT_LABEL_KEY_MAP is not None and len(INPUT_LABEL_KEY_MAP) > 0:
+        df = df.rename(columns=INPUT_LABEL_KEY_MAP)
+    if LABEL_VALUE_MAP is not None and len(LABEL_VALUE_MAP) > 0:
+        df = df.replace({"label": LABEL_VALUE_MAP})
 
     return df
 

@@ -181,7 +181,7 @@ def save_benchmark_results(
     output_subdir = cfg["inference_backend"]
     if cfg["use_output_guide"]: output_subdir = f"{output_subdir}_guided"
     output_dir = os.path.join(cfg["result_dir"], output_subdir)
-    if cfg["quant_method"].lower() == "gguf":
+    if cfg["quant_method"] is not None and cfg["quant_method"].lower() == "gguf":
         model_result_path = f"{cfg['model_path']}-{cfg['quant_scheme']}.csv"
     else:
         model_result_path = f"{cfg['model_path']}-no_quant_scheme.csv"

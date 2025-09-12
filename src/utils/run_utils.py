@@ -101,20 +101,6 @@ def add_data_arguments(parser: ArgumentParser) -> None:
         help="SSH port on the remote server (default: 22).",
     )
 
-    data_group.add_argument(
-        "--private-key-path",
-        type=str,
-        default=None,
-        help="Path to the private SSH key for authentication (optional).",
-    )
-
-    data_group.add_argument(
-        "--password",
-        type=str,
-        default=None,
-        help="Password for SSH authentication, if no key is used (optional).",
-    )
-
 
 def _load_config_from_yaml(config_file_path: str) -> dict:
     """ Load configuration from a YAML file

@@ -106,69 +106,71 @@ def load_remote_dotenv(
     username: str,
     remote_env_path: str,
     port: int = 22,
-    password: str = None,
-    private_key_path: str = None,
     max_password_trials: int = 3,
 ) -> bool:
     """
     Connects to a remote server via SSH, reads a .env file, and loads its
     variables into the current environment.
 
+    It attempts authentication in the following order:
+    1. SSH keys from standard locations (e.g., ~/.ssh/id_rsa).
+    2. The password provided as an argument (if any).
+    3. Prompts for a password interactively (if in a terminal).
+
     Args:
-        hostname (str): server's hostname or IP address
-        username (str): username for the SSH connection
-        remote_env_path (str): full path to the .env file on the remote server
-        port (int): SSH port (default is 22)
-        private_key_path (str, optional): path to your private SSH key for auth
-        max_password_trials (int, optional): how many times a password is asked before failing
+        hostname (str): The server's hostname or IP address.
+        username (str): The username for the SSH connection.
+        remote_env_path (str): The full path to the .env file on the remote server.
+        port (int): The SSH port (default is 22).
+        max_password_trials (int): How many times to prompt for a password interactively.
 
     Returns:
-        bool: success of the environment variables loading operation
+        bool: True if environment variables were loaded successfully, False otherwise.
     """
-    # Prepare authentication for client connection
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    connect_kwargs = {
-        "hostname": hostname,
-        "port": port,
-        "username": username,
-    }
-
     try:
 
-        # Prioritize key-based authentication if a path is provided
-        if private_key_path:
-            private_key = paramiko.RSAKey.from_private_key_file(private_key_path)
-            connect_kwargs["pkey"] = private_key
-            print("Attempting SSH connection with private key...")
-            client.connect(**connect_kwargs)
+        # Attempt connection using standard SSH keys first
+        try:
+            print("Attempting SSH connection using local SSH keys...")
+            client.connect(
+                hostname=hostname,
+                port=port,
+                username=username,
+                look_for_keys=True,  # Automatically look for keys in ~/.ssh/
+                password=None,       # Ensure we don't use a password here
+                timeout=10,
+            )
+        
+        # If SSH keys fail, go for password authentification (only works for interactive session)
+        except paramiko.AuthenticationException:
 
-        # If no key, try using a password
-        else:
-            
-            # Case with password given (e.g., on HPC, password taken before excecution)
-            if password is not None:
-                connect_kwargs["password"] = password
-                print(f"Attempting SSH connection with provided password...")
-                client.connect(**connect_kwargs)
-            
-            # Case when script directly prompt for a password (e.g., local run)
-            else:
+            # If an interactive session, prompt the user
+            if sys.stdin.isatty():
+                print("No password provided. Prompting for user input.")
                 for i in range(max_password_trials):
                     try:
-                        password = getpass.getpass(f"Enter password for {username}@{hostname}: ")
-                        connect_kwargs["password"] = password
-                        print(f"Attempting SSH connection (try {i+1}/{max_password_trials})...")
-                        client.connect(**connect_kwargs)
-                        break  # exit loop on success
-                    except paramiko.AuthenticationException:
-                        print("Authentication failed (wrong password?).")
-                        password = None  # reset password to ask again
+                        user_password = getpass.getpass(f"Enter password for {username}@{hostname}: ")
+                        client.connect(
+                            hostname=hostname,
+                            port=port,
+                            username=username,
+                            password=user_password,
+                            look_for_keys=False,
+                            timeout=10,
+                        )
+                        break  # exit loop on successful connection
 
-                if password is None:
-                    raise paramiko.AuthenticationException(
-                        "Failed to authenticate after {max_password_trials} attempts."
-                    )
+                    except paramiko.AuthenticationException:
+                        print(f"Authentication failed. ({max_password_trials - 1 - i} attempts left)")
+                        if i == max_password_trials - 1:
+                            raise  # re-raise the exception after the last failed attempt
+
+            # If not interactive and no password provided, we cannot proceed
+            else:
+                print("Authentication failed: No valid SSH key found and not in an interactive session to ask for a password.")
+                raise paramiko.AuthenticationException("No valid credentials available.")
 
         print("Connection successful. Opening SFTP session...")
         sftp_client = client.open_sftp()
@@ -187,7 +189,7 @@ def load_remote_dotenv(
                 if "=" in line:
                     key, value = line.split("=", 1)
                     key = key.strip()
-                    value = value.strip().strip('"\'')  # cleaning up quotes/whitespace
+                    value = value.strip().strip('"\'')  # cleaning up quotes / whitespace
 
                     # Set the environment variable for the current process
                     os.environ[key] = value
@@ -222,8 +224,6 @@ def read_pandas_from_encrypted_file(
     username: str,
     remote_env_path: str,
     port: int = 22,
-    password: str = None,
-    private_key_path: str = None,
 ) -> pd.DataFrame:
     """
     Reads and decrypts a file into a pandas DataFrame by first loading the
@@ -236,8 +236,6 @@ def read_pandas_from_encrypted_file(
         username (str): The username for the SSH connection.
         remote_env_path (str): The full path to the .env file on the remote server.
         port (int): The SSH port (default is 22).
-        password (str, optional): The password for SSH authentication.
-        private_key_path (str, optional): The path to your private SSH key.
 
     Returns:
         A pandas DataFrame with the decrypted data, or None if decryption fails.
@@ -249,8 +247,6 @@ def read_pandas_from_encrypted_file(
         username=username,
         remote_env_path=remote_env_path,
         port=port,
-        password=password,
-        private_key_path=private_key_path,
     )
 
     if not success:

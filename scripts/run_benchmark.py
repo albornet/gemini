@@ -69,7 +69,7 @@ def load_data_formatted_for_benchmarking(
     # Load dataset file (small, curated dataset)
     if use_curated_dataset:
         df_data = pd.read_csv(args.curated_data_path)
-        
+
     # Load dataset file (large, non-curated dataset + encrypted)
     else:
         print("Loading encrypted dataset...")
@@ -80,8 +80,6 @@ def load_data_formatted_for_benchmarking(
             username=args.username,
             remote_env_path=args.remote_env_path,
             port=args.port,
-            password=args.password,
-            private_key_path=args.private_key_path,
         )
 
     # Check for the presence of benchmarking fields
@@ -229,7 +227,6 @@ def benchmark_one_model(
     start_event.record()
     dataset_with_outputs = process_samples(dataset, model, tokenizer, **cfg)
     end_event.record()
-    torch.cuda.synchronize()
 
     # Record the time and memory usage
     time = start_event.elapsed_time(end_event) / 1000  # in seconds
@@ -238,6 +235,7 @@ def benchmark_one_model(
     memory = get_gpu_memory_usage_by_pid()  # in GB
 
     # Return benchmark results for metric computation and plotting
+    print("Model successfully benchmarked.")
     return {"dataset": dataset_with_outputs, "time": time, "memory": memory}
 
 

@@ -205,6 +205,7 @@ def process_samples(
 
         dataset = dataset.map(mapping_fn, desc="Extracting model predictions")
 
+    print("All LLM outputs were parsed.")
     return dataset
 
 
@@ -219,7 +220,7 @@ def _map_and_structure_output(
     Extracts structured data from a single sample's text output and add the index
     of the inference that generated that output
     """
-    # ADD THIS LINE: Recreate the model from the serializable inputs
+    # Recreate the model from the serializable inputs
     output_schema_model = create_pydantic_model_from_schema_dict(
         schema_dict=output_schema_dict,
         model_name=output_schema_name,

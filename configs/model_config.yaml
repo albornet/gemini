@@ -1,5 +1,5 @@
 # Model configuration
-model_path: swiss-ai/Apertus-8B-2509  # Qwen/Qwen3-32B-AWQ
+model_path: Qwen/Qwen3-32B-AWQ  # swiss-ai/Apertus-8B-2509  # Qwen/Qwen3-32B-AWQ
 quant_method: null  # null, awq, gguf, must match above model path!
 quant_scheme: Q4_K_M  # only used for quant_method == gguf, else ignored and set to "no_quant_scheme"
 max_context_length: 16384  # note: maximum number of tokens in our documents is approximately 8200

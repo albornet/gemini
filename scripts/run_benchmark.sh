@@ -1,14 +1,67 @@
 #!/bin/bash
 
-# Slurm job configuration
+# --- Default Values for Arguments ---
+PARTITION="private-teodoro-gpu"
+TIME="0-01:00:00"
+GPUS_PER_TASK=2
+
+# --- Help/Usage Function ---
+usage() {
+    echo "Usage: $0 [options]"
+    echo ""
+    echo "Options:"
+    echo "  -p, --partition       Slurm partition to use        (Default: ${PARTITION})"
+    echo "  -t, --time            Job time limit (D-HH:MM:SS)   (Default: ${TIME})"
+    echo "  -g, --gpus-per-task   Number of GPUs per task       (Default: ${GPUS_PER_TASK})"
+    echo "  -h, --help            Display this help message"
+    echo "Example:"
+    echo "  ./$0 -p shared-gpu -t 0-01:00:00 -g 2"
+    exit 1
+}
+
+# --- Argument Parsing ---
+# Loop through arguments and process them
+while [[ $# -gt 0 ]]; do
+    key="$1"
+    case $key in
+        -p|--partition)
+        PARTITION="$2"
+        shift # past argument
+        shift # past value
+        ;;
+        -t|--time)
+        TIME="$2"
+        shift # past argument
+        shift # past value
+        ;;
+        -g|--gpus-per-task)
+        GPUS_PER_TASK="$2"
+        shift # past argument
+        shift # past value
+        ;;
+        -h|--help)
+        usage
+        ;;
+        *)    # unknown option
+        echo "Error: Unknown option '$1'"
+        usage
+        ;;
+    esac
+done
+
+# --- Display Final Configuration ---
+echo "Submitting job with the following configuration:"
+echo "  Partition:       ${PARTITION}"
+echo "  Time Limit:      ${TIME}"
+echo "  GPUs per Task:   ${GPUS_PER_TASK}"
+echo "-----------------------------------------------"
+
+# Slurm job configuration (fixed values)
 JOB_NAME=gemini-inference
-PARTITION=shared-gpu
-TIME=0-00:20:00
 MEM=64gb
 NODES=1
 NTASKS=1
 CPUS_PER_TASK=8
-GPUS_PER_TASK=2
 CONSTRAINT="COMPUTE_MODEL_RTX_3090_25G|COMPUTE_MODEL_RTX_4090_25G"
 
 # Python environment configuration

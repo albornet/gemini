@@ -1,18 +1,18 @@
 # Model configuration
-model_path: Qwen/Qwen3-32B-AWQ
-quant_method: awq  # must match above model path!
+model_path: swiss-ai/Apertus-8B-2509  # Qwen/Qwen3-32B-AWQ
+quant_method: null  # null, awq, gguf, must match above model path!
 quant_scheme: Q4_K_M  # only used for quant_method == gguf, else ignored and set to "no_quant_scheme"
 max_context_length: 16384  # note: maximum number of tokens in our documents is approximately 8200
 max_new_tokens: 1024  # note: this corresponds to the maximum generated tokens
 top_p: 0.95
 temperature: 0.80
-use_flash_attention: True
+use_flash_attention: true
 
 # Run parameters
 num_gpus_to_use: 2
 gpu_memory_utilization: 0.75
-n_inference_repeats: 10  # number of times each inference is repeated for benchmark
+n_inference_repeats: 1  # number of times each inference is repeated for benchmark
 inference_backend: vllm  # hf, vllm, llama-cpp
-use_output_guide: True
-skip_to_next_model_if_error: True
-delete_model_cache_after_run: True  # note: not used for now! but see llm_loader with cache_path
+use_output_guide: true
+skip_to_next_model_if_error: true
+delete_model_cache_after_run: true  # note: not used for now! but see llm_loader with cache_path

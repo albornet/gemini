@@ -2,8 +2,8 @@
 
 # Slurm job configuration
 JOB_NAME=gemini-inference
-PARTITION=private-teodoro-gpu  # shared-gpu
-TIME=0-00:20:00  # 0-02:00:00
+PARTITION=shared-gpu
+TIME=0-00:20:00
 MEM=64gb
 NODES=1
 NTASKS=1

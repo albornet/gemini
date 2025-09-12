@@ -55,9 +55,6 @@ def main(args: argparse.Namespace):
         process.start()  # spawn a new process for each benchmark run
         process.join()  # wait for the process to complete before continuing
 
-    # Success message
-    print("\nScript completed successfully!")
-
 
 def load_data_formatted_for_benchmarking(
     args: argparse.Namespace,
@@ -100,6 +97,7 @@ def load_data_formatted_for_benchmarking(
     if sample_small_dataset:
         df_data = sample_small_balanced_dataset(df_data, min_samples_per_class)
     dataset = Dataset.from_pandas(df_data)
+    
     return dataset
 
 

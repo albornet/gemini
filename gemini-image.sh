@@ -1,11 +1,11 @@
 #!/bin/bash
 
-#SBATCH --partition=debug-cpu
+#SBATCH --partition=shared-cpu
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
-#SBATCH --time=00:15:00
+#SBATCH --time=01:00:00
 #SBATCH --output=./results/logs/%x_%j.out
 #SBATCH --error=./results/logs/%x_%j.err
 

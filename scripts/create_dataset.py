@@ -6,18 +6,12 @@ from src.data.encryption import (
     write_pandas_to_encrypted_file,
 )
 
-RAW_DATA_PATH_WITH_LABELS = "data/data_2025/raw/Exploitable anonymised letters with new labels.xlsx"
+RAW_DATA_PATH_WITH_LABELS = "data/data_2025/raw/Exploitable anonymised letters with newer labels.xlsx"
 ENCRYPTED_DATASET_PATH = "data/data_2025/processed/dataset.encrypted.csv"
-COLUMNS_TO_KEEP = [
-    "patient_id",
-    "creation_date",
-    "Age_creation_date",
-    "Anonymised letter",
-    "Label_extraction",
-]
-INPUT_LABEL_KEY_MAP = {
-    "Anonymised letter": "input_text",
-    "Label_extraction": "label",
+COLUMN_MAP = {
+    "PatID": "patient_id",
+    "lettre": "input_text",
+    "MRS label": "label",
 }
 LABEL_VALUE_MAP = {
     "No FU": float("nan"),
@@ -33,7 +27,8 @@ def main(args):
     print("Creating dataset from raw data...")
     df = create_dataset(
         raw_data_path_with_labels=RAW_DATA_PATH_WITH_LABELS,
-        columns_to_keep=COLUMNS_TO_KEEP,
+        column_map=COLUMN_MAP,
+        label_value_map=LABEL_VALUE_MAP,
     )
 
     # Save a key to an local environment file, once
@@ -69,8 +64,8 @@ def main(args):
 
 def create_dataset(
     raw_data_path_with_labels: str,
-    columns_to_keep: list,
-    output_dataset_path: str|None = None,
+    column_map: dict[str, str],
+    label_value_map: dict[str, str],
 ) -> pd.DataFrame:
     """
     Creates a dataset from an Excel file and saves it as a CSV file.
@@ -79,23 +74,17 @@ def create_dataset(
         raw_data_path (str): The path to the raw Excel data file.
         csv_data_path (str): The path where the processed CSV data will be saved.
     """
-    # Keep track of document, remove true patient id, and keep only used columns
+    # Format data fields and label values
     df = pd.read_excel(raw_data_path_with_labels)
+    df = df.rename(columns=column_map)
+    if label_value_map is not None and len(label_value_map) > 0:
+        df = df.replace({"label": label_value_map})
+
+    # Keep track of document, remove true patient id, and keep only used columns
     df["document_id"] = df.index
     df["patient_id"] = df.groupby("patient_id").ngroup()
-    df = df[columns_to_keep]
-
-    # Save the dataset to a CSV file if output path is provided
-    if output_dataset_path is not None:
-        df.to_csv(output_dataset_path, index=False)
-        print(f"Dataset saved (not encrypted) to {output_dataset_path}")
-
-    # Format data fields and label values
-    if INPUT_LABEL_KEY_MAP is not None and len(INPUT_LABEL_KEY_MAP) > 0:
-        df = df.rename(columns=INPUT_LABEL_KEY_MAP)
-    if LABEL_VALUE_MAP is not None and len(LABEL_VALUE_MAP) > 0:
-        df = df.replace({"label": LABEL_VALUE_MAP})
-
+    if column_map is not None and len(column_map) > 0:
+        df = df[column_map.values()]
     return df
 
 

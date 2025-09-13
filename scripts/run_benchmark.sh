@@ -2,9 +2,9 @@
 
 # --- Default Values for Arguments ---
 PARTITION="private-teodoro-gpu"
-TIME="0-00:10:00"
+TIME="0-00:30:00"
 GPUS_PER_TASK=2
-w
+
 # --- Help/Usage Function ---
 usage() {
     echo "Usage: $0 [options]"
@@ -108,11 +108,8 @@ sbatch <<EOF
 #SBATCH --output=./results/logs/job_%j.txt
 #SBATCH --error=./results/logs/job_%j.err
 
-# --- Job Execution ---
+# The srun command to be executed on the compute node
 echo "Starting job \$SLURM_JOB_ID on node \$(hostname)..."
-
-# The srun command to be executed on the compute node.
-# Note that the --password argument is no longer needed.
 srun apptainer exec --nv "${SIF_IMAGE}" ${PYTHON_WRAPPER_CALL} \\
     --encrypted-data-path "${ENCRYPTED_DATA_PATH}" \\
     --curated-data-path "${CURATED_DATA_PATH}" \\

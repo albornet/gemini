@@ -46,14 +46,15 @@ def main(args: argparse.Namespace):
         data_loading_args = cfg["data_loading_arguments"]
         dataset = load_data_formatted_for_benchmarking(args, **data_loading_args)
 
-    # TODO: LOOP THAT MODIFIES RUN_KWARGS FOR EACH MODEL TO BE BENCHMARKED (?)
+    # Run the modle benchmark
     run_kwargs = {"cfg": cfg, "dataset": dataset, "debug": args.debug}
-    if args.debug:
-        record_one_benchmark(**run_kwargs)
-    else:
-        process = torch_mp.Process(target=record_one_benchmark, kwargs=run_kwargs)
-        process.start()  # spawn a new process for each benchmark run
-        process.join()  # wait for the process to complete before continuing
+    record_one_benchmark(**run_kwargs)
+    # if args.debug:
+    #     record_one_benchmark(**run_kwargs)
+    # else:
+    #     process = torch_mp.Process(target=record_one_benchmark, kwargs=run_kwargs)
+    #     process.start()  # spawn a new process for each benchmark run
+    #     process.join()  # wait for the process to complete before continuing
 
 
 def load_data_formatted_for_benchmarking(
@@ -114,7 +115,7 @@ def sample_small_balanced_dataset(
     )
     df_data = df_data.sample(frac=1)
     df_data = df_data.reset_index(drop=True)
-    
+
     return df_data
 
 
@@ -227,6 +228,10 @@ def benchmark_one_model(
     start_event.record()
     dataset_with_outputs = process_samples(dataset, model, tokenizer, **cfg)
     end_event.record()
+
+    # Wait for all kernels on all GPUs to finish BEFORE measuring time.
+    torch.cuda.synchronize()
+    print("Devices synchronized.")
 
     # Record the time and memory usage
     time = start_event.elapsed_time(end_event) / 1000  # in seconds

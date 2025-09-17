@@ -1,46 +1,46 @@
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
-from vllm import LLM
-from llama_cpp import Llama
-from huggingface_hub import list_repo_files, hf_hub_download, HfApi
+# from vllm import LLM
+# from llama_cpp import Llama
+from huggingface_hub import list_repo_files, snapshot_download, hf_hub_download, HfApi
 from warnings import warn
+from src.utils.run_utils import extract_quant_method
 
 
 def get_model_and_tokenizer(
     model_path: str,
     inference_backend: str,
-    quant_method: str,
     quant_scheme: str|None = None,
     max_context_length: int|None = None,
     use_flash_attention: bool = False,
-    num_gpus_to_use: int = 1,
+    num_gpus_to_use: int|None = None,
     gpu_memory_utilization: float = 0.9,
     *args, **kwargs,
 ) -> tuple[AutoModelForCausalLM, AutoTokenizer]:
     """
     Create an LLM-based inference generator for solving a task
-
-    Args:
-        model_path (str): reference string to load model from huggingface
-        quant_method (str): model file format (normal, bitsandbytes, awq, tqdm, gguf, etc.)
     """
-    tokenizer = None  # default value (for now, for llama-cpp)
+    quant_method = extract_quant_method(model_path)
     match inference_backend:
 
         # Using vLLM backend
         case "vllm":
 
             # Initialize model arguments
+            if num_gpus_to_use is None:
+                num_gpus_to_use = torch.cuda.device_count()
+                print(f"Selected all available GPUs by default ({num_gpus_to_use})")
             max_num_gpus = torch.cuda.device_count()
             if num_gpus_to_use > max_num_gpus:
                 print("Warning: selected number of GPUs larger than what is available")
                 print(f"Will try to load the model on {max_num_gpus} GPUs")
                 num_gpus_to_use = max_num_gpus
-            model_args = {
-                "trust_remote_code": True,
-                "max_model_len": max_context_length,
-                "tensor_parallel_size": num_gpus_to_use,
-            }
+                model_args = {
+                    "trust_remote_code": True,
+                    "max_model_len": max_context_length,
+                    "tensor_parallel_size": num_gpus_to_use,
+                    "gpu_memory_utilization": gpu_memory_utilization,
+                }
 
             # Check for arguments specific to the quantization method
             if quant_method == "bnb":
@@ -55,7 +55,7 @@ def get_model_and_tokenizer(
                     model_args.update({"dtype": "float16", "quantization": "awq_marlin"})
 
             # Load model and tokenizer
-            model = LLM(**model_args, gpu_memory_utilization=gpu_memory_utilization)
+            model = LLM(**model_args)
             tokenizer = model.get_tokenizer()
             cache_path = model.llm_engine.model_config.model
             # cache_path = model.llm_engine.model_config.served_model_name
@@ -73,6 +73,7 @@ def get_model_and_tokenizer(
                 verbose=False,
             )
             cache_path = model._model.path_model
+            tokenizer = None
 
         # Using HuggingFace backend
         case "hf":
@@ -138,3 +139,21 @@ def download_gguf_by_quant(model_id: str, quant_scheme: str) -> str:
             return hf_hub_download(repo_id=model_id, filename=file)
         
     raise FileNotFoundError(f"No GGUF file found with quantization scheme '{quant_scheme}' in repo '{model_id}'")
+
+
+def download_model(model_id):
+    """
+    Download a model from the HuggingFaceHub to the local cache
+    """
+    # The snapshot_download function downloads all files from a repo
+    print(f"Downloading model {model_id} to the cache")
+    try:
+        cached_path = snapshot_download(
+            repo_id=model_id,
+            repo_type="model",
+            local_files_only=False,
+        )
+        print(f"Model downloaded successfully and cached at: {cached_path}")
+
+    except Exception as e:
+        print(f"An error occurred: {e}")

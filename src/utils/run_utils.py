@@ -155,3 +155,35 @@ def set_torch_cuda_arch_list() -> None:
     else:
         print(f"TORCH_CUDA_ARCH_LIST is already set to '{cuda_arch_value}'.")
 
+
+def extract_quant_method(
+    model_id_or_path: str,
+    quant_map: dict = {
+        "awq": "awq",
+        "gptq": "gptq",
+        "gguf": "gguf",
+        "fp8": "fp8",
+        "eetq": "eetq",
+        "aqlm": "aqlm",
+        "hqq": "hqq",
+    },  # schema: {name_in_model_id_or_path: name_in_like_vllm}
+) -> Optional[str]:
+    """
+    Extracts the quantization method from a model ID or path
+    """
+    # Standardize the input for case-insensitive matching.
+    lower_model_id = model_id_or_path.lower()
+
+    # Split the model ID by common delimiters to get potential keywords.
+    # Delimiters include '/', '-', and '_'.
+    parts = re.split(r'[/_-]', lower_model_id)
+
+    # Iterate through the parts from right to left, as the quantization
+    # method is almost always at the end of the name.
+    for part in reversed(parts):
+        if part in quant_map:
+            return quant_map[part]
+
+    # If no known quantization method is found, the model is likely in a 
+    # native format like FP16 or BF16
+    return None

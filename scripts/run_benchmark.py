@@ -26,6 +26,7 @@ from src.utils.run_utils import (
     add_model_arguments,
     add_data_arguments,
     set_torch_cuda_arch_list,
+    extract_quant_method,
 )
 
 
@@ -159,8 +160,9 @@ def record_one_benchmark(
         )
 
     # Compute and save benchmark results
-    print("Benchmarked %s" % cfg["model_path"])
     save_benchmark_results(cfg=cfg, benchmark_results=benchmark_results)
+    print_gpu_info()
+    print("Benchmarked %s" % cfg["model_path"])
 
     # Clean memory for the next benchmark
     if "tokenizer" in locals(): del tokenizer
@@ -168,6 +170,8 @@ def record_one_benchmark(
     if torch_dist.is_initialized(): torch_dist.destroy_process_group()
     torch.cuda.empty_cache()
     gc.collect()
+    print_gpu_info()
+    print("Cleaned memory")
 
 
 def save_benchmark_results(
@@ -180,12 +184,13 @@ def save_benchmark_results(
     output_subdir = cfg["inference_backend"]
     if cfg["use_output_guide"]: output_subdir = f"{output_subdir}_guided"
     output_dir = os.path.join(cfg["result_dir"], output_subdir)
-    if cfg["quant_method"] is not None and cfg["quant_method"].lower() == "gguf":
+    quant_method = extract_quant_method(cfg["model_path"])
+    if quant_method is not None and quant_method == "gguf":
         model_result_path = f"{cfg['model_path']}-{cfg['quant_scheme']}.csv"
     else:
         model_result_path = f"{cfg['model_path']}-no_quant_scheme.csv"
     output_path = os.path.join(output_dir, model_result_path)
-    
+
     # If provided, save model results to a csv file
     if benchmark_results is not None:
         compute_and_save_metrics(
@@ -202,7 +207,7 @@ def save_benchmark_results(
 def benchmark_one_model(
     cfg: dict[str, Any],
     dataset: Dataset,
-    model: AutoModelForCausalLM|LLM|Llama,
+    model: AutoModelForCausalLM | LLM | Llama,
     tokenizer: AutoTokenizer,
 ) -> dict[str, Dataset|float]:
     """

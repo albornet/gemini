@@ -1,7 +1,15 @@
+# Model name on huggingface
+# model_path: Orion-zhen/Qwen3-0.6B-AWQ
+# model_path: Orion-zhen/Qwen3-1.7B-AWQ
+# model_path: Qwen/Qwen3-4B-AWQ
+# model_path: Qwen/Qwen3-8B-AWQ
+# model_path: Qwen/Qwen3-14B-AWQ
+# model_path: Qwen/Qwen3-32B-AWQ
+model_path: Qwen/Qwen3-30B-A3B-Instruct-2507-FP8
+# model_path: Qwen/Qwen3-30B-A3B-Thinking-2507-FP8
+
 # Model configuration
-model_path: Qwen/Qwen3-32B-AWQ  # swiss-ai/Apertus-8B-2509  # Qwen/Qwen3-32B-AWQ
-quant_method: null  # null, awq, gguf, must match above model path!
-quant_scheme: Q4_K_M  # only used for quant_method == gguf, else ignored and set to "no_quant_scheme"
+quant_scheme: Q4_K_M  # only used for gguf-quantized models
 max_context_length: 16384  # note: maximum number of tokens in our documents is approximately 8200
 max_new_tokens: 1024  # note: this corresponds to the maximum generated tokens
 top_p: 0.95
@@ -9,7 +17,7 @@ temperature: 0.80
 use_flash_attention: true
 
 # Run parameters
-num_gpus_to_use: 2
+num_gpus_to_use: null  # if null, will take all available gpus by default (see run_benchmark.sh)
 gpu_memory_utilization: 0.75
 n_inference_repeats: 10  # number of times each inference is repeated for benchmark
 inference_backend: vllm  # hf, vllm, llama-cpp

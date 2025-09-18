@@ -72,17 +72,23 @@ def _infer_llama_cpp(
     # Run llama-cpp model on the dataset
     all_outputs = []
     for messages in tqdm(dataset["messages"], desc="Generating inferences (llama-cpp)"):
-        response = model.create_chat_completion(
-            messages=messages,
-            max_tokens=max_new_tokens,
-            temperature=temperature,
-            top_p=top_p,
-            n=n_inference_repeats,  # Generate N choices for the prompt
-            response_format=response_format,
-        )
-        all_outputs.append([
-            choice["message"]["content"].strip() for choice in response["choices"]
-        ])
+        prompt_outputs = []
+
+        # Loop n_inference_repeats times for each message
+        for _ in range(n_inference_repeats):
+            response = model.create_chat_completion(
+                messages=messages,
+                max_tokens=max_new_tokens,
+                temperature=temperature,
+                top_p=top_p,
+                response_format=response_format,
+            )
+
+            # Each response has one choice, so we get it at index 0
+            content = response["choices"][0]["message"]["content"]
+            prompt_outputs.append(content.strip())
+            
+        all_outputs.append(prompt_outputs)
 
     return all_outputs
 

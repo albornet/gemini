@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # --- Default values for arguments ---
-PARTITION="private-drim-gpu"
-TIME="0-00:10:00"
+PARTITION="private-teodoro-gpu"
+TIME="0-00:15:00"
 GPUS_PER_TASK=1
 
 # --- Help/usage function ---

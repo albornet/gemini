@@ -1,15 +1,6 @@
-# Model name on huggingface
-# model_path: Orion-zhen/Qwen3-0.6B-AWQ
-# model_path: Orion-zhen/Qwen3-1.7B-AWQ
-# model_path: Qwen/Qwen3-4B-AWQ
-# model_path: Qwen/Qwen3-8B-AWQ
-# model_path: Qwen/Qwen3-14B-AWQ
-# model_path: Qwen/Qwen3-32B-AWQ
-model_path: Qwen/Qwen3-30B-A3B-Instruct-2507-FP8
-# model_path: Qwen/Qwen3-30B-A3B-Thinking-2507-FP8
-
 # Model configuration
-quant_scheme: Q4_K_M  # only used for gguf-quantized models
+model_path: unsloth/Qwen3-0.6B-GGUF
+quant_scheme: Q4_K_XL  # note: only used for gguf-quantized models
 max_context_length: 16384  # note: maximum number of tokens in our documents is approximately 8200
 max_new_tokens: 1024  # note: this corresponds to the maximum generated tokens
 top_p: 0.95
@@ -20,7 +11,7 @@ use_flash_attention: true
 num_gpus_to_use: null  # if null, will take all available gpus by default (see run_benchmark.sh)
 gpu_memory_utilization: 0.75
 n_inference_repeats: 10  # number of times each inference is repeated for benchmark
-inference_backend: vllm  # hf, vllm, llama-cpp
+inference_backend: llama-cpp  # hf, vllm, llama-cpp
 use_output_guide: true
 skip_to_next_model_if_error: true
 delete_model_cache_after_run: true  # note: not used for now! but see llm_loader with cache_path

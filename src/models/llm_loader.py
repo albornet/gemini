@@ -1,7 +1,7 @@
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
-# from vllm import LLM
-# from llama_cpp import Llama
+from vllm import LLM
+from llama_cpp import Llama
 from huggingface_hub import list_repo_files, snapshot_download, hf_hub_download, HfApi
 from warnings import warn
 from src.utils.run_utils import extract_quant_method
@@ -35,12 +35,12 @@ def get_model_and_tokenizer(
                 print("Warning: selected number of GPUs larger than what is available")
                 print(f"Will try to load the model on {max_num_gpus} GPUs")
                 num_gpus_to_use = max_num_gpus
-                model_args = {
-                    "trust_remote_code": True,
-                    "max_model_len": max_context_length,
-                    "tensor_parallel_size": num_gpus_to_use,
-                    "gpu_memory_utilization": gpu_memory_utilization,
-                }
+            model_args = {
+                "trust_remote_code": True,
+                "max_model_len": max_context_length,
+                "tensor_parallel_size": num_gpus_to_use,
+                "gpu_memory_utilization": gpu_memory_utilization,
+            }
 
             # Check for arguments specific to the quantization method
             if quant_method == "bnb":

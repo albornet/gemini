@@ -1,4 +1,5 @@
 import os
+import re
 import torch
 import yaml
 from argparse import ArgumentParser
@@ -167,7 +168,7 @@ def extract_quant_method(
         "aqlm": "aqlm",
         "hqq": "hqq",
     },  # schema: {name_in_model_id_or_path: name_in_like_vllm}
-) -> Optional[str]:
+) -> str | None:
     """
     Extracts the quantization method from a model ID or path
     """

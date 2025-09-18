@@ -157,3 +157,16 @@ echo "Job has been submitted to Slurm."
 #    --data-config-path ./configs/data_config.yaml \
 #    --prompt-config-path ./configs/prompt_config.yaml \
 #    --output-config-path ./configs/output_config.yaml
+
+# Desktop run command
+# python -m scripts.run_benchmark \
+#     --encrypted-data-path "./data/data_2025/processed/dataset.encrypted.csv" \
+#     --curated-data-path "./data/data_2024/processed/dataset.csv" \
+#     --remote-env-path "/home/shares/ds4dh/gemini_project/gemini/.env" \
+#     --key-name "GEMINI" \
+#     --hostname "login1.baobab.hpc.unige.ch" \
+#     --username "borneta" \
+#     --model-config-path "./configs/model_config.yaml" \
+#     --data-config-path "./configs/data_config.yaml" \
+#     --prompt-config-path "./configs/prompt_config.yaml" \
+#     --output-config-path "./configs/output_config.yaml"

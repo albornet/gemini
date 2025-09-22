@@ -1,6 +1,6 @@
 # Model configuration
-model_path: unsloth/Qwen3-0.6B-GGUF
-quant_scheme: Q4_K_XL  # note: only used for gguf-quantized models
+model_path: unsloth/Qwen3-8B-GGUF
+quant_scheme: IQ1_M
 max_context_length: 16384  # note: maximum number of tokens in our documents is approximately 8200
 max_new_tokens: 1024  # note: this corresponds to the maximum generated tokens
 top_p: 0.95
@@ -11,7 +11,7 @@ use_flash_attention: true
 num_gpus_to_use: null  # if null, will take all available gpus by default (see run_benchmark.sh)
 gpu_memory_utilization: 0.75
 n_inference_repeats: 10  # number of times each inference is repeated for benchmark
-inference_backend: llama-cpp  # hf, vllm, llama-cpp
+inference_backend: vllm
 use_output_guide: true
 skip_to_next_model_if_error: true
 delete_model_cache_after_run: true  # note: not used for now! but see llm_loader with cache_path

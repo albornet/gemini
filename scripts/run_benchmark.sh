@@ -72,13 +72,12 @@ echo "-----------------------------------------------"
 
 # --- Slurm job configuration ---
 JOB_NAME=gemini-inference
-MEM=64gb
 NODES=1
 NTASKS=1
 CPUS_PER_TASK=8
 CONSTRAINT=""
 # CONSTRAINT="COMPUTE_MODEL_RTX_3090_25G"
-# CONSTRAINT="COMPUTE_MODEL_RTX_3090_25G|COMPUTE_MODEL_RTX_4090_25G"
+CONSTRAINT="COMPUTE_MODEL_RTX_3090_25G|COMPUTE_MODEL_RTX_4090_25G"
 
 # --- Python environment configuration ---
 SIF_FOLDER="/home/users/b/borneta/sif"
@@ -115,7 +114,6 @@ sbatch <<EOF
 #SBATCH --gpus-per-task=${GPUS_PER_TASK}
 #SBATCH --cpus-per-task=${CPUS_PER_TASK}
 #SBATCH --constraint="${CONSTRAINT}"
-#SBATCH --mem=${MEM}
 #SBATCH --time=${TIME}
 #SBATCH --output=./results/logs/job_%j.txt
 #SBATCH --error=./results/logs/job_%j.err

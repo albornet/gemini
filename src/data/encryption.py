@@ -147,19 +147,19 @@ def load_remote_dotenv(
         # If SSH keys fail, go for password authentification (only works for interactive session)
         except paramiko.AuthenticationException:
 
-            # If an interactive session, prompt the user
-            if sys.stdin.isatty():
+            # Try to get password
+            print("SSH key authentication failed.")
+            password = os.getenv("SSH_PASSWORD")
+
+            # If no env-var, prompt interactively
+            if not password and sys.stdin.isatty():
                 print("No password provided. Prompting for user input.")
                 for i in range(max_password_trials):
                     try:
                         user_password = getpass.getpass(f"Enter password for {username}@{hostname}: ")
                         client.connect(
-                            hostname=hostname,
-                            port=port,
-                            username=username,
-                            password=user_password,
-                            look_for_keys=False,
-                            timeout=10,
+                            hostname=hostname, port=port, username=username,
+                            password=user_password, look_for_keys=False, timeout=10,
                         )
                         break  # exit loop on successful connection
 
@@ -167,6 +167,14 @@ def load_remote_dotenv(
                         print(f"Authentication failed. ({max_password_trials - 1 - i} attempts left)")
                         if i == max_password_trials - 1:
                             raise  # re-raise the exception after the last failed attempt
+
+            # If we have a password from the environment, try connecting with it
+            elif password:
+                print("Attempting authentication with password from environment variable...")
+                client.connect(
+                    hostname=hostname, port=port, username=username,
+                    password=password, look_for_keys=False, timeout=10,
+                )
 
             # If not interactive and no password provided, we cannot proceed
             else:

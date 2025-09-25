@@ -2,23 +2,16 @@ from typing import Union
 from transformers import AutoTokenizer
 
 
-def build_prompt(
+def build_messages(
     sample: dict[str, str],
     cfg: dict,
-    tokenizer: AutoTokenizer=None,
 ) -> dict[str, Union[list, str]]:
-    """ Takes in a data sample, builds Hugging Face style messages, and optionally
-        tokenizes the associated prompt using the provided config
+    """
+    Take in a data sample to build HuggingFace's style messages
 
     Args:
         sample: dictionary containing the input text, expected as sample["input_text"]
         cfg: configuration dictionary containing prompt templates and context data
-        tokenizer (optional): instance applying the chat template, if required
-
-    Returns:
-        A dictionary containing:
-            - "messages" (list): list of messages for the LLM.
-            - "prompt" (str): tokenized prompt string if a tokenizer is provided, otherwise None.
     """
     # Get prompt info from configuration
     system_template: str = cfg["prompt_templates"]["system_template"]
@@ -35,21 +28,23 @@ def build_prompt(
         {"role": "user", "content": user_prompt_content.strip()},
     ]
 
-    # Apply the chat template if a tokenizer is provided
-    prompt_str = None
-    if tokenizer is not None:
-        # Note: apply_chat_template will use "enable_thinking = True" as default,
-        # which means that if the model is a thinking model, it will by default
-        # reason before giving an anwer. This should be taken into account when
-        # designing the output guide! In future versions of vLLM, I should check
-        # whether I can use this to avoid explicitely asking for reasoning, by
-        # using models like Qwen-3 natively!
-        prompt_str = tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-            enable_thinking=False,
-        )
+    return {"messages": messages}
 
-    return {"messages": messages, "prompt": prompt_str}
 
+def build_prompt(
+    sample: dict[str, str],
+    tokenizer: AutoTokenizer,
+    enable_thinking: bool = False,
+    add_generation_prompt: bool = True,
+) -> dict[str, str]:
+    """
+    Apply the chat template to a single sample
+    """
+    sample["prompt"] = tokenizer.apply_chat_template(
+        sample["messages"],
+        tokenize=False,
+        add_generation_prompt=add_generation_prompt,
+        enable_thinking=enable_thinking,
+    )
+
+    return sample

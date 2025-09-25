@@ -1,17 +1,23 @@
 # Model configuration
-model_path: unsloth/Qwen3-8B-GGUF
-quant_scheme: IQ1_M
-max_context_length: 16384  # note: maximum number of tokens in our documents is approximately 8200
-max_new_tokens: 1024  # note: this corresponds to the maximum generated tokens
+model_path: unsloth/Qwen3-4B-GGUF
+quant_scheme: Q2_K_XL  # IQ1_M, Q2_K_XL, Q3_K_XL, Q4_K_XL, Q5_K_XL, Q6_K_XL, Q8_K_XL, FP16
+reasoning_parser: qwen3  # deepseek_r1, qwen3, ... /!\ use deepseek_r1 for explicitely thinking models, qwen3 otherwise
+reasoning_config:                                            # NOT USED FOR NOW
+  think_start_str: "<think>"                                 # NOT USED FOR NOW
+  think_end_str: " Now formulate the final answer.</think>"  # NOT USED FOR NOW
+
+# Inference configuration
+inference_backend: vllm-serve-async  # vllm, vllm-serve, vllm-serve-async, llama-cpp
+n_inference_repeats: 5  # number of times each inference is repeated for benchmark
+use_output_guide: true
+max_context_length: null  # 10000 - note: maximum number of tokens in our documents is approximately 8200
+max_new_tokens: 4096  # 1024 - note: this corresponds to the maximum generated tokens
 top_p: 0.95
 temperature: 0.80
 use_flash_attention: true
 
 # Run parameters
 num_gpus_to_use: null  # if null, will take all available gpus by default (see run_benchmark.sh)
-gpu_memory_utilization: 0.75
-n_inference_repeats: 10  # number of times each inference is repeated for benchmark
-inference_backend: vllm
-use_output_guide: true
+gpu_memory_utilization: 0.8
 skip_to_next_model_if_error: true
 delete_model_cache_after_run: true  # note: not used for now! but see llm_loader with cache_path

@@ -1,20 +1,19 @@
 import re
 import json
 import json5
-from typing import Type, Any, Union, List
+from enum import Enum
+from typing import Type, Any, List
 from pydantic import BaseModel, ValidationError, Field, create_model
 from pydantic_core import PydanticUndefinedType
-from vllm.sampling_params import GuidedDecodingParams
-
 
 # Mappings from json schema keywords to pydantic field arguments
 TYPE_MAPPING = {"string": str, "integer": int, "number": float, "boolean": bool}
 CONSTRAINT_MAPPING = {
 
-    # No-constraint keys
-    "default": None,
-    "description": None,
-    "title": None,
+    # Field helpers
+    "default": "default",
+    "description": "description",
+    "title": "title",
 
     # String
     "maxLength": "max_length",
@@ -29,11 +28,8 @@ CONSTRAINT_MAPPING = {
     "multipleOf": "multiple_of",
 
     # Array
-    "minItems": "min_length",  # pydantic uses min_length for lists
-    "maxItems": "max_length",  # pydantic uses max_length for lists
-
-    # Need others?
-    # ...
+    "minItems": "min_length",
+    "maxItems": "max_length",
 
 }
 
@@ -42,46 +38,36 @@ def parse_schema_field(
     field_name: str,
     properties: dict[str, Any],
 ) -> tuple[Type, dict[str, Any]]:
-    """ Parse a schema property to Pydantic type and constraints
     """
-    # Extract field type
+    Parse a schema property to a Pydantic type and Field arguments
+    """
+    # Determine the base type
     type_str = properties.get("type")
     if not type_str:
         raise ValueError(f"Field '{field_name}' must have a 'type'.")
 
-    # Map json-style type to python type (this handles most "basic" types)
-    if type_str in TYPE_MAPPING:
+    # Handle enum, primitive types, and arrays
+    pydantic_type: Type
+    if "enum" in properties:
+        enum_name = f"{field_name.capitalize()}Enum"
+        pydantic_type = Enum(enum_name, {str(v): v for v in properties["enum"]})
+    elif type_str in TYPE_MAPPING:
         pydantic_type = TYPE_MAPPING[type_str]
-
-    # Special case for lists ("array" in json-style)
     elif type_str == "array":
         items_schema = properties.get("items")
         if not isinstance(items_schema, dict) or "type" not in items_schema:
             raise ValueError(f"Array '{field_name}' needs 'items' with a 'type'.")
-        
-        # Identify the type of the items in the list
-        item_pydantic_type, _ = parse_schema_field(f"{field_name}_items", items_schema.copy())
+        item_pydantic_type, _ = parse_schema_field(f"{field_name}_items", items_schema)
         pydantic_type = List[item_pydantic_type]
-
     else:
-        raise ValueError(f"Unsupported type '{type_str}' for '{field_name}'.")
-    
-    # Map any identified json-style constraints to pydantic constraints
-    helpers = {}
-    constraints = {}
+        raise ValueError(f"Unsupported type '{type_str}' for field '{field_name}'.")
+
+    # Collect field constraints and metadata
+    field_args = {}
     for schema_key, pydantic_key in CONSTRAINT_MAPPING.items():
-        if schema_key in properties and pydantic_key is not None:
-            constraints[pydantic_key] = properties[schema_key]
-        elif schema_key in properties:
-            if pydantic_key is None:
-                helpers[schema_key] = properties[schema_key]
-            else:
-                raise ValueError(f"Unsupported constraint '{schema_key}' for property '{field_name}'.")
+        if schema_key in properties:
+            field_args[pydantic_key] = properties[schema_key]
 
-    # Combine all arguments in a single dictionary
-    field_args = {**helpers, **constraints}
-
-    # TODO: ensure extracted constraints are applicable to the determined pydantic_type
     return pydantic_type, field_args
 
 
@@ -89,7 +75,8 @@ def create_pydantic_model_from_schema_dict(
     schema_dict: dict[str, Any],
     model_name: str,
 ) -> Type[BaseModel]:
-    """ Create a pydantic model from a schema dictionary
+    """
+    Create a Pydantic model from a JSON schema-like dictionary
     """
     pydantic_fields = {}
     for field_name, field_properties in schema_dict.items():
@@ -100,32 +87,6 @@ def create_pydantic_model_from_schema_dict(
         pydantic_fields[field_name] = (field_type, Field(**field_args))
 
     return create_model(model_name, **pydantic_fields, __base__=BaseModel)
-    
-
-def create_output_guide(
-    inference_backend: str,
-    output_schema_dict: dict[str, Any],
-    output_schema_name: str,
-) -> Union[dict[str, Any], GuidedDecodingParams, Type[BaseModel]]:
-    """ Dynamically creates a pydantic BaseModel class from yaml configuration
-    """
-    # Create output schema model
-    output_schema_model = create_pydantic_model_from_schema_dict(
-        schema_dict=output_schema_dict,
-        model_name=output_schema_name,
-    )
-
-    # Return an output guide corresponding to the backend used for LLM inference
-    match inference_backend:
-        case "llama-cpp":
-            return output_schema_model.model_json_schema()
-        case "vllm":
-            json_schema = output_schema_model.model_json_schema()
-            return GuidedDecodingParams(json=json_schema)
-        case "hf":
-            return output_schema_model  # not sure how to handle this case
-        case _:
-            raise ValueError(f"Unsupported inference backend: {inference_backend}")
 
 
 def extract_structured_output(
@@ -134,44 +95,46 @@ def extract_structured_output(
     col_to_structure: str = "output_text",
 ) -> dict[str, Any]:
     """
-    Extracts structured output from raw model output using a multi-stage
-    lenient parsing strategy.
-
-    Args:
-        sample (dict[str, Any]): Sample containing model output.
-        output_schema_model (Type[BaseModel]): Pydantic model for validation.
-        col_to_structure (str): Dataset column whose value needs to be structured.
-    
-    Returns:
-        dict[str, Any]: Structured and validated output from the LLM.
+    Extracts structured output from raw model output using a multi-stage lenient
+    parsing strategy
     """
     raw_output = sample.get(col_to_structure)
     if not isinstance(raw_output, str) or not raw_output.strip():
-        # Handle cases where output is missing or empty
         print("Warning: Missing or empty column to structure. Returning default.")
         return _get_default_values(output_schema_model)
 
-    # Direct pydantic parse
+    # Direct Pydantic parse
     try:
         validated_output = output_schema_model.model_validate_json(raw_output.strip())
         print("Success: Direct parsing successful.")
         return validated_output.model_dump()
     except (ValidationError, json.JSONDecodeError):
-        pass  # silently fail and move to the next stage
+        pass
 
-    # Isolate JSON block and look for markdown code fences
+    # Isolate JSON block (from markdown or first/last braces)
     json_candidate = raw_output
-    match = re.search(r"```(json)?\s*({.*})\s*```", raw_output, re.DOTALL)
+    match = re.search(r"```(?:json)?\s*({.*}|\[.*\])\s*```", raw_output, re.DOTALL)
     if match:
-        json_candidate = match.group(2)
+        json_candidate = match.group(1)
     else:
-        # Fallback to finding the first '{' and last '}'
         try:
-            start = raw_output.index("{")
-            end = raw_output.rindex("}") + 1
+            start_brace = raw_output.find("{")
+            start_bracket = raw_output.find("[")
+
+            if start_brace == -1 and start_bracket == -1:
+                raise ValueError("No JSON object or array found")
+
+            if start_brace != -1 and (start_bracket == -1 or start_brace < start_bracket):
+                start = start_brace
+                end_char = "}"
+            else:
+                start = start_bracket
+                end_char = "]"
+
+            end = raw_output.rindex(end_char) + 1
             json_candidate = raw_output[start:end]
         except ValueError:
-            pass  # no JSON object found
+            pass
     try:
         validated_output = output_schema_model.model_validate_json(json_candidate)
         print("Success: Isolated and parsed JSON block.")
@@ -179,16 +142,16 @@ def extract_structured_output(
     except (ValidationError, json.JSONDecodeError):
         pass
 
-    # Parse with json5 library (more lenient with trailing commas, comments, etc.)
+    # Parse with lenient json5 library
     try:
         data = json5.loads(json_candidate)
         validated_output = output_schema_model.model_validate(data)
         print("Success: Parsed with lenient json5 library.")
         return validated_output.model_dump()
-    except (ValidationError, Exception):  # json5 might raise other errors
+    except (ValidationError, Exception):
         pass
 
-    # Attempt to repair truncation
+    # Attempt to repair truncated JSON
     try:
         repaired_json = _repair_truncated_json(json_candidate)
         validated_output = output_schema_model.model_validate_json(repaired_json)
@@ -201,42 +164,41 @@ def extract_structured_output(
     print("Warning: All parsing methods failed. Attempting field-by-field regex extraction.")
     extracted_data = {}
     for field_name, field_info in output_schema_model.model_fields.items():
-        field_type = field_info.annotation
-        value = _extract_field_with_regex(json_candidate, field_name, field_type)
+        value = _extract_field_with_regex(json_candidate, field_name, field_info.annotation)
         if value is not None:
             extracted_data[field_name] = value
 
-    if extracted_data:
-        print(f"Success: Extracted partial data with regex: {list(extracted_data.keys())}")
-        
-        # Merge extracted fields with default ones for missing fields
-        defaults = _get_default_values(output_schema_model)
-        defaults.update(extracted_data)
+    if not extracted_data:
+        print("Error: Could not extract any fields with regex. Returning default values.")
+        return _get_default_values(output_schema_model)
 
-        # Final validation pass on the cobbled-together data
-        try:
-            final_model = output_schema_model.model_validate(defaults)
-            return final_model.model_dump()
-        except ValidationError:
-            # If validation still fails, return what we have plus defaults
-            return defaults
+    print(f"Success: Extracted partial data with regex: {list(extracted_data.keys())}")
+    defaults = _get_default_values(output_schema_model)
+    defaults.update(extracted_data)
 
-    # Final Fallback (return only default values)
-    print("Error: Could not extract any fields. Returning default values.")
-    return _get_default_values(output_schema_model)
+    try:
+        final_model = output_schema_model.model_validate(defaults)
+        return final_model.model_dump()
+    except ValidationError:
+        return defaults
 
 
 def _repair_truncated_json(s: str) -> str:
     """
     Append missing brackets/braces to a potentially truncated JSON string
     """
-    open_braces = s.count('{')
-    close_braces = s.count('}')
-    open_brackets = s.count('[')
-    close_brackets = s.count(']')
+    s = s.strip()
+    closures = {'{': '}', '[': ']'}
+    stack = []
+    for char in s:
+        if char in closures:
+            stack.append(closures[char])
+        elif stack and char == stack[-1]:
+            stack.pop()
+    
+    # Append missing closing characters
+    s += "".join(reversed(stack))
 
-    s += '}' * (open_braces - close_braces)
-    s += ']' * (open_brackets - close_brackets)
     return s
 
 
@@ -246,36 +208,61 @@ def _extract_field_with_regex(
     field_type: Type,
 ) -> Any | None:
     """
-    Extracts a single field value using a type-aware regex pattern
+    Extract a single field value using a type-aware regex pattern
     """
-    # Pattern for string: "field_name"\s*:\s*"<value>"
+    # Pattern for null
+    pattern_null = rf'"{field_name}"\s*:\s*null'
+    if re.search(pattern_null, text):
+        return None
+    
+    # Pattern for string
     if field_type == str:
-
-        # Captures content inside double quotes, handling escaped quotes
         pattern = rf'"{field_name}"\s*:\s*"((?:\\"|[^"])*)"'
         match = re.search(pattern, text)
         return match.group(1).replace('\\"', '"') if match else None
 
-    # Pattern for number (int/float): "field_name"\s*:\s*<value>
+    # Pattern for number (int/float)
     if field_type in (int, float):
-        pattern = rf'"{field_name}"\s*:\s*(-?\d+\.?\d*)'
+        pattern = rf'"{field_name}"\s*:\s*(-?\d+(?:\.\d+)?)'
         match = re.search(pattern, text)
-        return field_type(match.group(1)) if match else None
+        if not match:
+            return None
+        try:
+            return field_type(match.group(1))
+        except (ValueError, TypeError):
+            return None
 
-    # Pattern for boolean: "field_name"\s*:\s*<value>
+    # Pattern for boolean
     if field_type == bool:
         pattern = rf'"{field_name}"\s*:\s*(true|false)'
         match = re.search(pattern, text)
+        return match.group(1) == 'true' if match else None
+        
+    # Pattern for lists of strings or numbers
+    if hasattr(field_type, "__origin__") and field_type.__origin__ == list:
+
+        # Simple case: list of strings
+        pattern_str = rf'"{field_name}"\s*:\s*\[\s*((?:"(?:\\"|[^"])*"\s*,\s*)*"(?:\\"|[^"])*")\s*\]'
+        match = re.search(pattern_str, text)
         if match:
-            return match.group(1) == 'true'
-        return None
+            return [s.strip().strip('"') for s in match.group(1).split(',') if s.strip()]
+
+        # Simple case: list of numbers
+        pattern_num = rf'"{field_name}"\s*:\s*\[\s*((-?\d+(?:\.\d+)?\s*,\s*)*-?\d+(?:\.\d+)?)\s*\]'
+        match = re.search(pattern_num, text)
+        if match:
+            item_type = field_type.__args__[0]
+            try:
+                return [item_type(n.strip()) for n in match.group(1).split(',') if n.strip()]
+            except (ValueError, TypeError):
+                return None
 
     return None
 
 
 def _get_default_values(model: Type[BaseModel]) -> dict[str, Any]:
     """
-    Builds a dictionary of default values from a Pydantic model
+    Build a dictionary of default values from a Pydantic model
     """
     defaults = {}
     for name, field in model.model_fields.items():
@@ -284,6 +271,11 @@ def _get_default_values(model: Type[BaseModel]) -> dict[str, Any]:
         elif not isinstance(field.default, PydanticUndefinedType):
             defaults[name] = field.default
         else:
-            defaults[name] = None  # for required fields with no default
+            # For required fields, use a sensible empty default based on type
+            field_type = field.annotation
+            if hasattr(field_type, "__origin__") and field_type.__origin__ == list:
+                defaults[name] = []
+            else:
+                defaults[name] = None
 
     return defaults

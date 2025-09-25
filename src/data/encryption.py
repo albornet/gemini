@@ -164,7 +164,7 @@ def load_remote_dotenv(
                         break  # exit loop on successful connection
 
                     except paramiko.AuthenticationException:
-                        print(f"Authentication failed. ({max_password_trials - 1 - i} attempts left)")
+                        print(f"Authentication failed: {max_password_trials - 1 - i} attempts left.")
                         if i == max_password_trials - 1:
                             raise  # re-raise the exception after the last failed attempt
 

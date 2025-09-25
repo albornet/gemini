@@ -1,15 +1,19 @@
-from transformers import AutoModelForCausalLM, AutoTokenizer
+import time
+import asyncio
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from transformers import AutoModelForCausalLM
 from datasets import Dataset
 from llama_cpp import Llama
 from vllm import LLM, SamplingParams, RequestOutput
+from openai import OpenAI, AsyncOpenAI, InternalServerError, APIConnectionError
 from tqdm import tqdm
+from tqdm.asyncio import tqdm as anext
 from typing import Any
 from functools import partial
-from pydantic import BaseModel
-
+from vllm.sampling_params import GuidedDecodingParams
+from src.data.prompting import build_prompt
 from src.data.output_guiding import (
     create_pydantic_model_from_schema_dict,
-    create_output_guide,
     extract_structured_output,
 )
 
@@ -21,26 +25,34 @@ def _infer_vllm(
     max_new_tokens: int,
     temperature: float = 1.0,
     top_p: float = 1.0,
-    output_guide: dict[str, Any] | None = None,
+    json_schema: dict[str, Any] | None = None,
     *args, **kwargs,
 ) -> list[list[str]]:
     """
-    Helper function to run inference using vLLM.
-    Generates `n_inference_repeats` outputs for each prompt.
+    Runs inference with vLLM directly (faster than querying vLLM-serve)
     """
-    # Build sampling parameters, using 'n' for repeated inferences per prompt.
+    # Build sampling parameters
     sampling_params = SamplingParams(
-        n=n_inference_repeats,  # Generate N completions for each prompt
+        n=n_inference_repeats,  # several completions per prompt
         max_tokens=max_new_tokens,
         temperature=temperature,
         top_p=top_p,
-        guided_decoding=output_guide,
+        guided_decoding=GuidedDecodingParams(json=json_schema),
     )
+
+    # Build prompts using model tokenizer by mapping dataset messages
+    tokenizer_fn = partial(
+        build_prompt,
+        tokenizer=model.get_tokenizer(),
+        add_generation_prompt=True,
+        enable_thinking=False,
+    )
+    dataset = dataset.map(tokenizer_fn, desc="Building prompts for vLLM")
 
     # Run vLLM model on all dataset's prompts (single, efficient batch call)
     outputs: list[RequestOutput] = model.generate(dataset["prompt"], sampling_params=sampling_params)
     
-    # Each 'request_output' in 'outputs' corresponds to a prompt and contains 'n' completions.
+    # Each request_output in outputs corresponds to a prompt and contains n completions
     output_texts = [
         [completion.text.strip() for completion in request_output.outputs]
         for request_output in outputs
@@ -49,8 +61,69 @@ def _infer_vllm(
     return output_texts
 
 
-def _infer_llama_cpp(
-    model: Llama,
+# def _infer_vllm_serve(
+#     model: OpenAI,
+#     dataset: Dataset,
+#     n_inference_repeats: int,
+#     max_new_tokens: int,
+#     temperature: float = 1.0,
+#     top_p: float = 1.0,
+#     output_guide: dict[str, Any] | None = None,
+#     *args, **kwargs,
+# ) -> list[list[str]]:
+#     """
+#     Runs inference by querying the vLLM server using the chat completion API
+#     """
+#     # Retrieve the model from the server
+#     client = model
+#     model_name = client.models.list().data[0].id
+
+#     # Build extra parameters if output guide is provided
+#     extra_body = {}
+#     if output_guide:
+#         extra_body["guided_json"] = output_guide
+
+#     # Query the server n_inference_repeats times per prompt
+#     max_retries = 5
+#     all_outputs = []
+#     for messages in tqdm(dataset["messages"], desc="Querying vLLM server"):
+#         chat_completion = None
+#         for attempt in range(max_retries):
+
+#             # Attempt to create the chat completion
+#             try:
+#                 chat_completion = client.chat.completions.create(
+#                     model=model_name,
+#                     messages=messages,
+#                     max_tokens=max_new_tokens,
+#                     n=n_inference_repeats,
+#                     temperature=temperature,
+#                     top_p=top_p,
+#                     extra_body=extra_body if output_guide else None,
+#                 )
+#                 break  # successful, exit the retry loop
+
+#             # Handle server errors with exponential backoff
+#             except (InternalServerError, APIConnectionError) as e:
+#                 print(f"vLLM server error on attempt {attempt + 1}/{max_retries}: {e}")
+#                 if attempt < max_retries - 1:
+#                     time.sleep(2 ** attempt)
+#                 else:
+#                     raise e
+
+#         # Extract clean outputs for the current prompt
+#         prompt_outputs = [
+#             choice.message.content.strip()
+#             for choice in chat_completion.choices
+#         ]
+#         all_outputs.append(prompt_outputs)
+#         time.sleep(1)  # small delay to avoid overwhelming the server
+
+#     return all_outputs
+
+
+def _infer_vllm_serve(
+    model: OpenAI,
     dataset: Dataset,
     n_inference_repeats: int,
     max_new_tokens: int,
@@ -60,14 +133,167 @@ def _infer_llama_cpp(
     *args, **kwargs,
 ) -> list[list[str]]:
     """
-    Helper function to run inference using llama-cpp.
-    Generates `n_inference_repeats` outputs for each prompt.
+    Runs inference by querying the vLLM server using the chat completion API
+    """
+    client = model
+    model_name = client.models.list().data[0].id
+
+    @retry(
+        wait=wait_exponential(multiplier=1, min=1, max=16),
+        stop=stop_after_attempt(5),
+        retry=retry_if_exception_type((InternalServerError, ConnectionError)),
+        reraise=True,
+    )
+    def generate_vllm_outputs(messages: list[dict[str, str]]):
+        """Single-shot API call function"""
+        extra_body = {"guided_json": output_guide} if output_guide else None
+        chat_completion = client.chat.completions.create(
+            model=model_name,
+            messages=messages,
+            max_tokens=max_new_tokens,
+            n=n_inference_repeats,
+            temperature=temperature,
+            top_p=top_p,
+            extra_body=extra_body,
+        )
+        # TODO: FOR REASONING MODELS THE WHOLE OUTPUT MIGHT GO INTO REASONING
+        # IN THAT CASE (CONTENT IS NONE) TRY TO TAKE THE REASONING CONTENT?
+        return [choice.message.content.strip() for choice in chat_completion.choices]
+
+    # Query the server for each task separately
+    all_outputs = []
+    for messages in tqdm(dataset["messages"], desc="Querying vLLM server"):
+        all_outputs.append(generate_vllm_outputs(messages))
+        time.sleep(1)  # avoid overwhelming the server
+
+    return all_outputs
+
+
+async def _infer_vllm_serve_async(
+    model: AsyncOpenAI,
+    dataset: Dataset,
+    n_inference_repeats: int,
+    max_new_tokens: int,
+    temperature: float = 1.0,
+    top_p: float = 1.0,
+    output_guide: dict[str, Any] | None = None,
+    *args, **kwargs,
+) -> list[list[str]]:
+    """
+    Runs inference by querying the vLLM server asynchronously
+    """
+    client = model
+    model_name = (await client.models.list()).data[0].id
+
+    @retry(
+        wait=wait_exponential(multiplier=1, min=1, max=16),
+        stop=stop_after_attempt(5),
+        retry=retry_if_exception_type((InternalServerError, ConnectionError)),
+        reraise=True,
+    )
+    async def generate_vllm_outputs(messages: list[dict[str, str]]):
+        """Single-shot async API call function"""
+        extra_body = {"guided_json": output_guide} if output_guide else None
+        chat_completion = await client.chat.completions.create(
+            model=model_name,
+            messages=messages,
+            max_tokens=max_new_tokens,
+            n=n_inference_repeats,
+            temperature=temperature,
+            top_p=top_p,
+            extra_body=extra_body,
+        )
+        # TODO: FOR REASONING MODELS THE WHOLE OUTPUT MIGHT GO INTO REASONING
+        # IN THAT CASE (CONTENT IS NONE) TRY TO TAKE THE REASONING CONTENT?
+        return [choice.message.content.strip() for choice in chat_completion.choices]
+
+    # Query the server for all tasks concurrently
+    tasks = [generate_vllm_outputs(messages) for messages in dataset["messages"]]
+    all_outputs = await anext.gather(*tasks, desc="Querying vLLM server (async)")
+
+    return all_outputs
+
+
+# async def _infer_vllm_serve_async(
+#     model: AsyncOpenAI,
+#     dataset: Dataset,
+#     n_inference_repeats: int,
+#     max_new_tokens: int,
+#     temperature: float = 1.0,
+#     top_p: float = 1.0,
+#     output_guide: dict[str, Any] | None = None,
+#     *args, **kwargs,
+# ) -> list[list[str]]:
+#     """
+#     Runs inference by querying the vLLM server asynchronously
+#     """
+#     # Retrieve the model from the server
+#     client = model
+#     try:
+#         models_list = await client.models.list()
+#         model_name = models_list.data[0].id
+#     except IndexError:
+#         print("Error: No models found on the vLLM server.")
+#         raise
+
+#     # Build extra parameters if output guide is provided
+#     extra_body = {}
+#     if output_guide:
+#         extra_body["guided_json"] = output_guide
+
+#     # Helper function for a single async request with retries
+#     async def process_single_prompt(messages: list[dict[str, str]]) -> list[str]:
+#         max_retries = 5
+#         for attempt in range(max_retries):
+#             try:
+#                 chat_completion = await client.chat.completions.create(
+#                     model=model_name, messages=messages,
+#                     max_tokens=max_new_tokens, n=n_inference_repeats,
+#                     temperature=temperature, top_p=top_p,
+#                     extra_body=extra_body if output_guide else None,
+#                 )
+
+#                 # Successful request, return the processed outputs
+#                 return [
+#                     choice.message.content.strip()
+#                     for choice in chat_completion.choices
+#                 ]
+
+#             # Handle server errors with exponential backoff
+#             except (InternalServerError, APIConnectionError) as e:
+#                 print(f"\nAttempt {attempt + 1}/{max_retries} failed for a prompt: {e}")
+#                 if attempt < max_retries - 1:
+#                     await asyncio.sleep(2 ** attempt)
+#                 else:
+#                     print("Max retries reached for a prompt. Raising the error.")
+#                     raise e
+
+#         return []  # should not be reached if exceptions are raised properly (which is probably not the case)
+
+#     # Create and run all tasks concurrently
+#     tasks = [process_single_prompt(messages) for messages in dataset["messages"]]
+#     all_outputs = await anext.gather(*tasks, desc="Querying vLLM server (async)")
+
+#     return all_outputs
+
+
+def _infer_llama_cpp(
+    model: Llama,
+    dataset: Dataset,
+    n_inference_repeats: int,
+    max_new_tokens: int,
+    temperature: float = 1.0,
+    top_p: float = 1.0,
+    json_schema: dict[str, Any] | None = None,
+    *args, **kwargs,
+) -> list[list[str]]:
+    """
+    Runs inference with llama-cpp-python
     """
     # Build response format
-    if output_guide is not None:
-        response_format = {"type": "json_object", "schema": output_guide}
-    else:
-        response_format = None
+    response_format = None
+    if json_schema is not None:
+        response_format = {"type": "json_object", "schema": json_schema}
 
     # Run llama-cpp model on the dataset
     all_outputs = []
@@ -93,56 +319,9 @@ def _infer_llama_cpp(
     return all_outputs
 
 
-def _infer_huggingface(
-    model: AutoModelForCausalLM,
-    tokenizer: AutoTokenizer,
-    dataset: Dataset,
-    n_inference_repeats: int,
-    max_new_tokens: int,
-    temperature: float = 1.0,
-    top_p: float = 1.0,
-    output_guide: dict[str, Any] | None = None,
-    *args, **kwargs,
-) -> list[list[str]]:
-    """
-    Helper function to run inference using HuggingFace.
-    Generates `n_inference_repeats` outputs for each prompt.
-    """
-    # TODO: SEE IF WE CAN USE AN OUTPUT GUIDE WITH NATIVE HUGGINGFACE BACKEND
-    if output_guide is not None:
-        print("Warning: HuggingFace native inference does not support guided output in this setup.")
-
-    # To generate different sequences, sampling must be enabled
-    do_sample = True if n_inference_repeats > 1 and temperature > 0.0 else False
-    all_outputs = []
-    for prompt in tqdm(dataset["prompt"], desc="Generating inferences (HF)"):
-        inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
-
-        # Use num_return_sequences to generate multiple outputs efficiently
-        outputs = model.generate(
-            **inputs,
-            max_new_tokens=max_new_tokens,
-            pad_token_id=tokenizer.eos_token_id,
-            temperature=temperature,
-            top_p=top_p,
-            num_return_sequences=n_inference_repeats, # Generate N sequences
-            do_sample=do_sample,
-        )
-
-        # The output tensor now has a batch size of n_inference_repeats
-        generated_tokens = outputs[:, inputs["input_ids"].shape[-1]:]
-        this_prompt_outputs = [
-            tokenizer.decode(g, skip_special_tokens=True).strip() for g in generated_tokens
-        ]
-        all_outputs.append(this_prompt_outputs)
-
-    return all_outputs
-
-
 def process_samples(
     dataset: Dataset,
-    model: AutoModelForCausalLM | Llama | LLM,
-    tokenizer: AutoTokenizer,
+    model: AutoModelForCausalLM | Llama | OpenAI,
     inference_backend: str,
     n_inference_repeats: int,
     use_output_guide: bool = False,
@@ -167,31 +346,34 @@ def process_samples(
     #         print("Removed 'reasoning' field from output schema for reasoning model.")
 
     # Build output guide if requested (i.e., output schema influences LLM's inference)
-    output_guide = create_output_guide(
-        inference_backend=inference_backend,
-        output_schema_dict=output_schema_dict,
-        output_schema_name=output_schema_name,
-    ) if use_output_guide else None
+    if not use_output_guide:
+        output_guide = None
+    else:
+        output_guide = create_pydantic_model_from_schema_dict(
+            schema_dict=output_schema_dict,
+            model_name=output_schema_name,
+        ).model_json_schema()
 
-    # Select inference backend
+    # Define arguments for model inference 
+    infer_args = {
+        "model": model,
+        "dataset": dataset,
+        "n_inference_repeats": n_inference_repeats,
+        "max_new_tokens": max_new_tokens,
+        "temperature": temperature,
+        "top_p": top_p,
+        "output_guide": output_guide,
+        **kwargs,
+    }
+
+    # Run inference using the correct backend
     match inference_backend:
-        case "vllm": inference_fn = _infer_vllm
-        case "llama-cpp": inference_fn = _infer_llama_cpp
-        case "huggingface": inference_fn = _infer_huggingface
+        case "vllm": output_texts = _infer_vllm(**infer_args)
+        case "vllm-serve": output_texts = _infer_vllm_serve(**infer_args)
+        case "llama-cpp": output_texts = _infer_llama_cpp(**infer_args)
+        case "vllm-serve-async": output_texts = asyncio.run(_infer_vllm_serve_async(**infer_args))
         case _: raise ValueError(f"Unknown inference backend: {inference_backend}")
 
-    # Run inference
-    output_texts = inference_fn(
-        model=model,
-        dataset=dataset,
-        tokenizer=tokenizer,
-        n_inference_repeats=n_inference_repeats,
-        max_new_tokens=max_new_tokens,
-        temperature=temperature,
-        top_p=top_p,
-        output_guide=output_guide,
-    )  # -> this is a list of n_sample lists of shape n_inference_repeats
-    
     # Extract Pydantic style output schema from the configuration
     transposed_output_texts = list(zip(*output_texts))
     for i, model_outputs in enumerate(transposed_output_texts):
@@ -208,7 +390,6 @@ def process_samples(
             col_to_structure=column_name,
             inference_idx=i,
         )
-
         dataset = dataset.map(mapping_fn, desc="Extracting model predictions")
 
     print("All LLM outputs were parsed.")

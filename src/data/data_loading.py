@@ -1,0 +1,66 @@
+import argparse
+import pandas as pd
+from datasets import Dataset
+from src.data.encryption import read_pandas_from_encrypted_file
+
+
+def load_data_formatted_for_benchmarking(
+    args: argparse.Namespace,
+    use_curated_dataset: bool = False,
+    remove_samples_without_label: bool = False,
+    sample_small_dataset: bool = False,
+    min_samples_per_class: int = 200,
+) -> Dataset:
+    """
+    Load and preprocess data for benchmarking
+    """
+    # Load dataset file (small, curated dataset)
+    if use_curated_dataset:
+        df_data = pd.read_csv(args.curated_data_path)
+
+    # Load dataset file (large, non-curated dataset + encrypted)
+    else:
+        print("Loading encrypted dataset...")
+        df_data = read_pandas_from_encrypted_file(
+            encrypted_file_path=args.encrypted_data_path,
+            encryption_key_var_name=args.key_name,
+            hostname=args.hostname,
+            username=args.username,
+            remote_env_path=args.remote_env_path,
+            port=args.port,
+        )
+
+    # Check for the presence of benchmarking fields
+    if "input_text" not in df_data.columns or "label" not in df_data.columns:
+        raise KeyError("Missing expected columns: 'input_text', 'label'")
+
+    # Replace label values and / or filter out samples without labels if specified
+    if remove_samples_without_label:
+        print("Filtering out samples without labels.")
+        df_data = df_data.dropna(subset=["label"])
+
+    # Benchmark the chosen model
+    if sample_small_dataset:
+        df_data = sample_small_balanced_dataset(df_data, min_samples_per_class)
+    dataset = Dataset.from_pandas(df_data)
+    
+    return dataset
+
+
+def sample_small_balanced_dataset(
+    df_data: pd.DataFrame,
+    min_samples_per_class: int = 200,
+) -> pd.DataFrame:
+    """
+    Select a small portion of the data that has more or less balanced classes
+    """
+    print("Sampling a small, balanced dataset for debugging.")
+    df_data = df_data.groupby("label", group_keys=False)
+    df_data = df_data.apply(
+        lambda x: x.sample(n=min(len(x), min_samples_per_class)), 
+        include_groups=True,
+    )
+    df_data = df_data.sample(frac=1)
+    df_data = df_data.reset_index(drop=True)
+
+    return df_data

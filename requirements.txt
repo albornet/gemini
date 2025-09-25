@@ -13,6 +13,7 @@ ipdb
 tqdm
 json5
 PyYAML
+tenacity
 paramiko
 cryptography
 python-dotenv

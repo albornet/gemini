@@ -113,7 +113,7 @@ def generate_error_rate_plot(
     # Save the pooled results figure
     fig.tight_layout(rect=[0, 0.03, 1, 0.95])
     plot_full_path = os.path.join(output_dir, output_name + ".png")
-    plt.savefig(plot_full_path, bbox_inches="tight")
+    plt.savefig(plot_full_path, bbox_inches="tight", dpi=600)
     plt.close(fig)
     print(f"Combined plot saved: {plot_full_path}")
 

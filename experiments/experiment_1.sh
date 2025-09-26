@@ -1,7 +1,7 @@
 #!/bin/bash
 
 PARTITION="private-teodoro-gpu"  # "private-teodoro-gpu" // "shared-gpu"
-TIME_TO_RUN="0-00:30:00"
+TIME_TO_RUN="0-02:00:00"
 DEFAULT_NUM_GPUS=1
 
 CONFIG_FILE="./configs/model_config.yaml"
@@ -9,25 +9,25 @@ if [ ! -f "$CONFIG_FILE" ]; then
     echo "Error: Configuration file not found at '$CONFIG_FILE'"
     exit 1
 fi
-INFERENCE_BACKEND="vllm"
+INFERENCE_BACKEND="vllm-serve-async"
 
 MODEL_PATHS=(
-    # "unsloth/Qwen3-0.6B-GGUF"
-    # "unsloth/Qwen3-1.7B-GGUF"
-    # "unsloth/Qwen3-4B-GGUF"
+    "unsloth/Qwen3-0.6B-GGUF"
+    "unsloth/Qwen3-1.7B-GGUF"
+    "unsloth/Qwen3-4B-GGUF"
     "unsloth/Qwen3-8B-GGUF"
-    # "unsloth/Qwen3-14B-GGUF"
-    # "unsloth/Qwen3-32B-GGUF"
+    "unsloth/Qwen3-14B-GGUF"
+    "unsloth/Qwen3-32B-GGUF"
 )
 
 QUANT_SCHEMES=(
     "IQ1_M"
-    # "Q2_K_XL"
-    # "Q3_K_XL"
-    # "Q4_K_XL"
-    # "Q5_K_XL"
-    # "Q6_K_XL"
-    # "Q8_K_XL"
+    "Q2_K_XL"
+    "Q3_K_XL"
+    "Q4_K_XL"
+    "Q5_K_XL"
+    "Q6_K_XL"
+    "Q8_K_XL"
 )
 
 declare -A GPU_REQUIREMENTS

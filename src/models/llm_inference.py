@@ -61,65 +61,18 @@ def _infer_vllm(
     return output_texts
 
 
-# def _infer_vllm_serve(
-#     model: OpenAI,
-#     dataset: Dataset,
-#     n_inference_repeats: int,
-#     max_new_tokens: int,
-#     temperature: float = 1.0,
-#     top_p: float = 1.0,
-#     output_guide: dict[str, Any] | None = None,
-#     *args, **kwargs,
-# ) -> list[list[str]]:
-#     """
-#     Runs inference by querying the vLLM server using the chat completion API
-#     """
-#     # Retrieve the model from the server
-#     client = model
-#     model_name = client.models.list().data[0].id
-
-#     # Build extra parameters if output guide is provided
-#     extra_body = {}
-#     if output_guide:
-#         extra_body["guided_json"] = output_guide
-
-#     # Query the server n_inference_repeats times per prompt
-#     max_retries = 5
-#     all_outputs = []
-#     for messages in tqdm(dataset["messages"], desc="Querying vLLM server"):
-#         chat_completion = None
-#         for attempt in range(max_retries):
-
-#             # Attempt to create the chat completion
-#             try:
-#                 chat_completion = client.chat.completions.create(
-#                     model=model_name,
-#                     messages=messages,
-#                     max_tokens=max_new_tokens,
-#                     n=n_inference_repeats,
-#                     temperature=temperature,
-#                     top_p=top_p,
-#                     extra_body=extra_body if output_guide else None,
-#                 )
-#                 break  # successful, exit the retry loop
-
-#             # Handle server errors with exponential backoff
-#             except (InternalServerError, APIConnectionError) as e:
-#                 print(f"vLLM server error on attempt {attempt + 1}/{max_retries}: {e}")
-#                 if attempt < max_retries - 1:
-#                     time.sleep(2 ** attempt)
-#                 else:
-#                     raise e
-
-#         # Extract clean outputs for the current prompt
-#         prompt_outputs = [
-#             choice.message.content.strip()
-#             for choice in chat_completion.choices
-#         ]
-#         all_outputs.append(prompt_outputs)
-#         time.sleep(1)  # small delay to avoid overwhelming the server
-
-#     return all_outputs
+def _extract_outputs_vllm(choices: list) -> list[str]:
+    """
+    Extract content from chat completion choices, falling back to reasoning content
+    """
+    outputs = []
+    for choice in choices:
+        content = choice.message.content
+        if content is None:
+            content = getattr(choice.message, "reasoning_content", None)
+        outputs.append((content or "").strip())
+        
+    return outputs
 
 
 def _infer_vllm_serve(
@@ -156,9 +109,7 @@ def _infer_vllm_serve(
             top_p=top_p,
             extra_body=extra_body,
         )
-        # TODO: FOR REASONING MODELS THE WHOLE OUTPUT MIGHT GO INTO REASONING
-        # IN THAT CASE (CONTENT IS NONE) TRY TO TAKE THE REASONING CONTENT?
-        return [choice.message.content.strip() for choice in chat_completion.choices]
+        return _extract_outputs_vllm(chat_completion.choices)
 
     # Query the server for each task separately
     all_outputs = []
@@ -203,78 +154,13 @@ async def _infer_vllm_serve_async(
             top_p=top_p,
             extra_body=extra_body,
         )
-        # TODO: FOR REASONING MODELS THE WHOLE OUTPUT MIGHT GO INTO REASONING
-        # IN THAT CASE (CONTENT IS NONE) TRY TO TAKE THE REASONING CONTENT?
-        return [choice.message.content.strip() for choice in chat_completion.choices]
+        return _extract_outputs_vllm(chat_completion.choices)
 
     # Query the server for all tasks concurrently
     tasks = [generate_vllm_outputs(messages) for messages in dataset["messages"]]
     all_outputs = await anext.gather(*tasks, desc="Querying vLLM server (async)")
 
     return all_outputs
-
-
-# async def _infer_vllm_serve_async(
-#     model: AsyncOpenAI,
-#     dataset: Dataset,
-#     n_inference_repeats: int,
-#     max_new_tokens: int,
-#     temperature: float = 1.0,
-#     top_p: float = 1.0,
-#     output_guide: dict[str, Any] | None = None,
-#     *args, **kwargs,
-# ) -> list[list[str]]:
-#     """
-#     Runs inference by querying the vLLM server asynchronously
-#     """
-#     # Retrieve the model from the server
-#     client = model
-#     try:
-#         models_list = await client.models.list()
-#         model_name = models_list.data[0].id
-#     except IndexError:
-#         print("Error: No models found on the vLLM server.")
-#         raise
-
-#     # Build extra parameters if output guide is provided
-#     extra_body = {}
-#     if output_guide:
-#         extra_body["guided_json"] = output_guide
-
-#     # Helper function for a single async request with retries
-#     async def process_single_prompt(messages: list[dict[str, str]]) -> list[str]:
-#         max_retries = 5
-#         for attempt in range(max_retries):
-#             try:
-#                 chat_completion = await client.chat.completions.create(
-#                     model=model_name, messages=messages,
-#                     max_tokens=max_new_tokens, n=n_inference_repeats,
-#                     temperature=temperature, top_p=top_p,
-#                     extra_body=extra_body if output_guide else None,
-#                 )
-
-#                 # Successful request, return the processed outputs
-#                 return [
-#                     choice.message.content.strip()
-#                     for choice in chat_completion.choices
-#                 ]
-
-#             # Handle server errors with exponential backoff
-#             except (InternalServerError, APIConnectionError) as e:
-#                 print(f"\nAttempt {attempt + 1}/{max_retries} failed for a prompt: {e}")
-#                 if attempt < max_retries - 1:
-#                     await asyncio.sleep(2 ** attempt)
-#                 else:
-#                     print("Max retries reached for a prompt. Raising the error.")
-#                     raise e
-
-#         return []  # should not be reached if exceptions are raised properly (which is probably not the case)
-
-#     # Create and run all tasks concurrently
-#     tasks = [process_single_prompt(messages) for messages in dataset["messages"]]
-#     all_outputs = await anext.gather(*tasks, desc="Querying vLLM server (async)")
-
-#     return all_outputs
 
 
 def _infer_llama_cpp(

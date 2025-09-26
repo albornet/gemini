@@ -1,17 +1,17 @@
 # Model configuration
-model_path: unsloth/Qwen3-4B-GGUF
-quant_scheme: Q2_K_XL  # IQ1_M, Q2_K_XL, Q3_K_XL, Q4_K_XL, Q5_K_XL, Q6_K_XL, Q8_K_XL, FP16
+model_path: unsloth/Qwen3-8B-GGUF
+quant_scheme: Q8_K_XL
 reasoning_parser: qwen3  # deepseek_r1, qwen3, ... /!\ use deepseek_r1 for explicitely thinking models, qwen3 otherwise
 reasoning_config:                                            # NOT USED FOR NOW
   think_start_str: "<think>"                                 # NOT USED FOR NOW
   think_end_str: " Now formulate the final answer.</think>"  # NOT USED FOR NOW
 
 # Inference configuration
-inference_backend: vllm-serve-async  # vllm, vllm-serve, vllm-serve-async, llama-cpp
+inference_backend: vllm-serve-async
 n_inference_repeats: 5  # number of times each inference is repeated for benchmark
 use_output_guide: true
 max_context_length: null  # 10000 - note: maximum number of tokens in our documents is approximately 8200
-max_new_tokens: 4096  # 1024 - note: this corresponds to the maximum generated tokens
+max_new_tokens: 1024  # 1024 - note: this corresponds to the maximum generated tokens
 top_p: 0.95
 temperature: 0.80
 use_flash_attention: true

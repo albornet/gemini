@@ -59,6 +59,7 @@ def _load_model_vllm_server(
     gpu_memory_utilization: float = 0.9,
     host: str = "localhost",
     port: int | None = None,
+    client_timeout: int | float = 1800,
     async_mode: bool = False,
     *args, **kwargs,
 ) -> tuple[OpenAI, subprocess.Popen]:
@@ -110,9 +111,9 @@ def _load_model_vllm_server(
     # Choose the appropriate client (sync or async)
     print("\nvLLM server is running. Client is being configured.")
     if async_mode:
-        client = AsyncOpenAI(base_url=f"{base_url}/v1", api_key="vllm")
+        client = AsyncOpenAI(base_url=f"{base_url}/v1", api_key="vllm", timeout=client_timeout)
     else:
-        client = OpenAI(base_url=f"{base_url}/v1", api_key="vllm")
+        client = OpenAI(base_url=f"{base_url}/v1", api_key="vllm", timeout=client_timeout)
 
     return client, server_process
 
@@ -277,7 +278,7 @@ def find_free_port() -> int:
 def wait_for_vllm_server_ready(
     server_process: subprocess.Popen,
     url: str,
-    timeout: int = 600,
+    timeout: int = 1800,
 ):
     """
     Waits for the vLLM server to be ready and become healthy

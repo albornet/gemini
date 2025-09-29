@@ -7,6 +7,7 @@ from src.data.encryption import read_pandas_from_encrypted_file
 def load_data_formatted_for_benchmarking(
     args: argparse.Namespace,
     use_curated_dataset: bool = False,
+    add_curated_dataset: bool = False,
     remove_samples_without_label: bool = False,
     sample_small_dataset: bool = False,
     min_samples_per_class: int = 200,
@@ -16,6 +17,13 @@ def load_data_formatted_for_benchmarking(
     """
     # Load dataset file (small, curated dataset)
     if use_curated_dataset:
+        if add_curated_dataset:
+            raise ValueError(
+                "Cannot use both 'use_curated_dataset' and 'add_curated_dataset' "
+                "flags at the same time. Please choose one."
+            )
+
+        print("Loading curated dataset...")
         df_data = pd.read_csv(args.curated_data_path)
 
     # Load dataset file (large, non-curated dataset + encrypted)
@@ -30,6 +38,12 @@ def load_data_formatted_for_benchmarking(
             port=args.port,
         )
 
+    # Add small, curated dataset if required
+    if add_curated_dataset:
+        print("Adding curated dataset...")
+        df_curated = pd.read_csv(args.curated_data_path)
+        df_data = pd.concat([df_data, df_curated], ignore_index=True)
+
     # Check for the presence of benchmarking fields
     if "input_text" not in df_data.columns or "label" not in df_data.columns:
         raise KeyError("Missing expected columns: 'input_text', 'label'")
@@ -42,9 +56,8 @@ def load_data_formatted_for_benchmarking(
     # Benchmark the chosen model
     if sample_small_dataset:
         df_data = sample_small_balanced_dataset(df_data, min_samples_per_class)
-    dataset = Dataset.from_pandas(df_data)
-    
-    return dataset
+
+    return Dataset.from_pandas(df_data)
 
 
 def sample_small_balanced_dataset(

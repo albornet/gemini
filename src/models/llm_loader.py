@@ -3,12 +3,12 @@ import httpx
 import socket
 import subprocess
 import torch
-from warnings import warn
 from vllm import LLM
-from llama_cpp import Llama
+# from llama_cpp import Llama
 from openai import OpenAI, AsyncOpenAI
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from huggingface_hub import list_repo_files, HfApi, snapshot_download, hf_hub_download
+from warnings import warn
 from src.utils.run_utils import extract_quant_method
 
 
@@ -55,11 +55,12 @@ def _load_model_vllm_server(
     reasoning_parser: str | None = None,
     reasoning_config: str | None = None,
     max_context_length: int | None = None,
+    max_concurrent_inferences: int | None = None,
     num_gpus_to_use: int = 1,
     gpu_memory_utilization: float = 0.9,
     host: str = "localhost",
     port: int | None = None,
-    client_timeout: int | float = 1800,
+    client_timeout: int | float = 7200,
     async_mode: bool = False,
     *args, **kwargs,
 ) -> tuple[OpenAI, subprocess.Popen]:
@@ -77,6 +78,7 @@ def _load_model_vllm_server(
         "--tensor-parallel-size": str(num_gpus_to_use),
         "--gpu-memory-utilization": str(gpu_memory_utilization),
         "--max-model-len": str(max_context_length) if max_context_length else None,
+        "--max-num-seqs": str(max_concurrent_inferences) if max_concurrent_inferences else None,
         "--reasoning-parser": str(reasoning_parser) if reasoning_parser else None,
         # "--reasoning-config": str(reasoning_config) if reasoning_config else None,  # NOT SUPPORTED FOR NOW
     }
@@ -150,6 +152,7 @@ def load_model(
     reasoning_parser: str|None = None,
     reasoning_config: str|None = None,
     max_context_length: int|None = None,
+    max_concurrent_inferences: int|None = None,
     use_flash_attention: bool = False,
     num_gpus_to_use: int|None = None,
     gpu_memory_utilization: float = 0.9,
@@ -176,6 +179,7 @@ def load_model(
         "quant_method": quant_method,
         "reasoning_parser": reasoning_parser,
         "reasoning_config": reasoning_config,
+        "max_concurrent_inferences": max_concurrent_inferences,
         "max_context_length": max_context_length,
         "num_gpus_to_use": num_gpus_to_use,
         "gpu_memory_utilization": gpu_memory_utilization,

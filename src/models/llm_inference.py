@@ -3,7 +3,7 @@ import asyncio
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from transformers import AutoModelForCausalLM
 from datasets import Dataset
-from llama_cpp import Llama
+# from llama_cpp import Llama
 from vllm import LLM, SamplingParams, RequestOutput
 from openai import OpenAI, AsyncOpenAI, InternalServerError, APIConnectionError
 from tqdm import tqdm
@@ -128,6 +128,7 @@ async def _infer_vllm_serve_async(
     temperature: float = 1.0,
     top_p: float = 1.0,
     output_guide: dict[str, Any] | None = None,
+    max_concurrent_requests: int = 64,
     *args, **kwargs,
 ) -> list[list[str]]:
     """
@@ -135,6 +136,7 @@ async def _infer_vllm_serve_async(
     """
     client = model
     model_name = (await client.models.list()).data[0].id
+    semaphore = asyncio.Semaphore(max_concurrent_requests)  # avoid overload
 
     @retry(
         wait=wait_exponential(multiplier=1, min=1, max=16),
@@ -143,18 +145,19 @@ async def _infer_vllm_serve_async(
         reraise=True,
     )
     async def generate_vllm_outputs(messages: list[dict[str, str]]):
-        """Single-shot async API call function"""
-        extra_body = {"guided_json": output_guide} if output_guide else None
-        chat_completion = await client.chat.completions.create(
-            model=model_name,
-            messages=messages,
-            max_tokens=max_new_tokens,
-            n=n_inference_repeats,
-            temperature=temperature,
-            top_p=top_p,
-            extra_body=extra_body,
-        )
-        return _extract_outputs_vllm(chat_completion.choices)
+        """Single-shot async API call function, with semaphore control"""
+        async with semaphore:
+            extra_body = {"guided_json": output_guide} if output_guide else None
+            chat_completion = await client.chat.completions.create(
+                model=model_name,
+                messages=messages,
+                max_tokens=max_new_tokens,
+                n=n_inference_repeats,
+                temperature=temperature,
+                top_p=top_p,
+                extra_body=extra_body,
+            )
+            return _extract_outputs_vllm(chat_completion.choices)
 
     # Query the server for all tasks concurrently
     tasks = [generate_vllm_outputs(messages) for messages in dataset["messages"]]
@@ -164,7 +167,7 @@ async def _infer_vllm_serve_async(
 
 
 def _infer_llama_cpp(
-    model: Llama,
+    model,  # Llama,
     dataset: Dataset,
     n_inference_repeats: int,
     max_new_tokens: int,
@@ -206,8 +209,8 @@ def _infer_llama_cpp(
 
 
 def process_samples(
+    model: AutoModelForCausalLM,
     dataset: Dataset,
-    model: AutoModelForCausalLM | Llama | OpenAI,
     inference_backend: str,
     n_inference_repeats: int,
     use_output_guide: bool = False,
@@ -221,16 +224,6 @@ def process_samples(
     """
     Run inference on dataset samples using vLLM, llama-cpp, or HuggingFace backends.
     """
-    # # Remove any reasoning field from output schema for an already reasoning model
-    # THIS IS NOT IMPLEMENTED YET HERE BECAUSE I DID NOT FIGURE OUT WHETHER OR NOT
-    # QWEN3-LIKE MODELS CAN BE RUN BOTH WITH STRUCTURED OUTPUT GUIDING AND ENABLE
-    # THINKING IN VLLM!!
-    # is_reasoning = ("enable_thinking" in model.get_tokenizer().chat_template)
-    # if is_reasoning:
-    #     if "reasoning" in output_schema_dict:
-    #         del output_schema_dict["reasoning"]
-    #         print("Removed 'reasoning' field from output schema for reasoning model.")
-
     # Build output guide if requested (i.e., output schema influences LLM's inference)
     if not use_output_guide:
         output_guide = None

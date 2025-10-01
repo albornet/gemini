@@ -11,6 +11,7 @@ scikit_learn
 matplotlib
 ipdb
 tqdm
+psutil
 json5
 PyYAML
 tenacity

@@ -9,10 +9,10 @@
 #SBATCH --output=./results/logs/%x_%j.out
 #SBATCH --error=./results/logs/%x_%j.err
 
-# Check if the .sif file exists, and only remove it if it does
-if [ -f ~/sif/gemini-image.sif ]; then
-    rm ~/sif/gemini-image.sif
-fi
+# # Check if the .sif file exists, and only remove it if it does
+# if [ -f ~/sif/gemini-image.sif ]; then
+#     rm ~/sif/gemini-image.sif
+# fi
 
 # Build the Apptainer image
 apptainer build ~/sif/gemini-image.sif gemini-image.def

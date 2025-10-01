@@ -1,9 +1,16 @@
 #!/bin/bash
 
-PARTITION="private-teodoro-gpu"  # "private-teodoro-gpu" // "shared-gpu"
-TIME_TO_RUN="0-02:00:00"
-DEFAULT_NUM_GPUS=1
+# Slurm configuration
+PARTITION="shared-gpu"
+TIME_TO_RUN="0-05:00:00"
+NUM_GPUS=1
 
+# Node and GPU memory configuration
+DEFAULT_NODE_LIST="gpu034,gpu035"                   # 24GB GPUs
+LARGE_MEM_NODE_LIST="gpu020,gpu030,gpu031,gpu028"   # 40GB GPUs
+LARGER_MEM_NODE_LIST="gpu029,gpu032,gpu033,gpu045"  # 80GB GPUs
+
+# Benchmark configuration
 CONFIG_FILE="./configs/model_config.yaml"
 if [ ! -f "$CONFIG_FILE" ]; then
     echo "Error: Configuration file not found at '$CONFIG_FILE'"
@@ -11,33 +18,36 @@ if [ ! -f "$CONFIG_FILE" ]; then
 fi
 INFERENCE_BACKEND="vllm-serve-async"
 
+# Models to test
 MODEL_PATHS=(
     "unsloth/Qwen3-0.6B-GGUF"
-    "unsloth/Qwen3-1.7B-GGUF"
-    "unsloth/Qwen3-4B-GGUF"
-    "unsloth/Qwen3-8B-GGUF"
-    "unsloth/Qwen3-14B-GGUF"
-    "unsloth/Qwen3-32B-GGUF"
+    # "unsloth/Qwen3-1.7B-GGUF"
+    # "unsloth/Qwen3-4B-GGUF"
+    # "unsloth/Qwen3-8B-GGUF"
+    # "unsloth/Qwen3-14B-GGUF"
+    # "unsloth/Qwen3-32B-GGUF"
 )
 
+# Quantizations to test
 QUANT_SCHEMES=(
-    "IQ1_M"
     "Q2_K_XL"
-    "Q3_K_XL"
-    "Q4_K_XL"
-    "Q5_K_XL"
-    "Q6_K_XL"
-    "Q8_K_XL"
+    # "Q3_K_XL"
+    # "Q4_K_XL"
+    # "Q5_K_XL"
+    # "Q6_K_XL"
+    # "Q8_0"
 )
 
-declare -A GPU_REQUIREMENTS
-GPU_REQUIREMENTS["unsloth/Qwen3-14B-GGUF:Q8_K_XL"]="2"
-GPU_REQUIREMENTS["unsloth/Qwen3-32B-GGUF:Q4_K_XL"]="2"
-GPU_REQUIREMENTS["unsloth/Qwen3-32B-GGUF:Q5_K_XL"]="2"
-GPU_REQUIREMENTS["unsloth/Qwen3-32B-GGUF:Q6_K_XL"]="2"
-GPU_REQUIREMENTS["unsloth/Qwen3-32B-GGUF:Q8_K_XL"]="3"
+# Node requirements mapping
+declare -A NODE_LIST_REQUIREMENTS
+NODE_LIST_REQUIREMENTS["unsloth/Qwen3-14B-GGUF:Q8_0"]=$LARGE_MEM_NODE_LIST
+NODE_LIST_REQUIREMENTS["unsloth/Qwen3-32B-GGUF:Q3_K_XL"]=$LARGE_MEM_NODE_LIST
+NODE_LIST_REQUIREMENTS["unsloth/Qwen3-32B-GGUF:Q4_K_XL"]=$LARGE_MEM_NODE_LIST
+NODE_LIST_REQUIREMENTS["unsloth/Qwen3-32B-GGUF:Q5_K_XL"]=$LARGE_MEM_NODE_LIST
+NODE_LIST_REQUIREMENTS["unsloth/Qwen3-32B-GGUF:Q6_K_XL"]=$LARGER_MEM_NODE_LIST
+NODE_LIST_REQUIREMENTS["unsloth/Qwen3-32B-GGUF:Q8_0"]=$LARGER_MEM_NODE_LIST
 
-# Iterate over each model and each quantization mode
+# Main Loop
 for MODEL_PATH in "${MODEL_PATHS[@]}"; do
     for QUANT_SCHEME in "${QUANT_SCHEMES[@]}"; do
         echo "--------------------------------------------------------"
@@ -45,32 +55,47 @@ for MODEL_PATH in "${MODEL_PATHS[@]}"; do
         echo "   Model: $MODEL_PATH"
         echo "   Quantization: $QUANT_SCHEME"
 
-        # Select the number of GPU to use for that combination
+        # Determine node list to use
         KEY="${MODEL_PATH}:${QUANT_SCHEME}"
-        NUM_GPUS=$DEFAULT_NUM_GPUS
-        if [[ -v "GPU_REQUIREMENTS[$KEY]" ]]; then
-            NUM_GPUS=${GPU_REQUIREMENTS[$KEY]}
-            echo "   Found custom config: Requesting $NUM_GPUS GPU(s)."
+        NODE_LIST_TO_USE=""  # holding the final node list for the job
+        if [[ -v "NODE_LIST_REQUIREMENTS[$KEY]" ]]; then
+            NODE_LIST_TO_USE=${NODE_LIST_REQUIREMENTS[$KEY]}
+            if [[ "$NODE_LIST_TO_USE" == "$LARGER_MEM_NODE_LIST" ]]; then
+                GPU_MEM_UTIL="0.90"
+                echo "   Found custom config: targeting larger-memory nodes: $NODE_LIST_TO_USE"
+            elif [[ "$NODE_LIST_TO_USE" == "$LARGE_MEM_NODE_LIST" ]]; then
+                GPU_MEM_UTIL="0.85"
+                echo "   Found custom config: targeting large-memory nodes: $NODE_LIST_TO_USE"
+            fi
+
+        # For all other models, use the default node list and utilization
         else
-            echo "   Using default config: Requesting $NUM_GPUS GPU(s)."
+            NODE_LIST_TO_USE=$DEFAULT_NODE_LIST
+            GPU_MEM_UTIL="0.80"
+            echo "   Using default config: targeting standard nodes: $NODE_LIST_TO_USE"
         fi
+
+        echo "   Setting GPU memory utilization to $GPU_MEM_UTIL"
         echo "--------------------------------------------------------"
 
         # Modify the YAML file using sed
-        # The '-i' flag modifies the file in-place.
-        # We use '|' as the delimiter for 's' command to avoid conflicts with '/' in the MODEL_PATH.
         sed -i "s|^model_path:.*|model_path: $MODEL_PATH|" "$CONFIG_FILE"
         sed -i "s|^quant_scheme:.*|quant_scheme: $QUANT_SCHEME|" "$CONFIG_FILE"
         sed -i "s|^inference_backend:.*|inference_backend: $INFERENCE_BACKEND|" "$CONFIG_FILE"
+        sed -i "s|^gpu_memory_utilization:.*|gpu_memory_utilization: $GPU_MEM_UTIL|" "$CONFIG_FILE"
         echo "Updated '$CONFIG_FILE'."
 
-        # Run the benchmark script
-        echo "Running benchmark script..."
-        ./scripts/run_benchmark.sh -g "$NUM_GPUS" -t $TIME_TO_RUN -p $PARTITION
+        # Submit the job with the specified parameters
+        ./scripts/run_benchmark.sh \
+            -g "$NUM_GPUS" \
+            -t "$TIME_TO_RUN" \
+            -p "$PARTITION" \
+            -n "$NODE_LIST_TO_USE"
+
         echo "Benchmark job sent for $MODEL_PATH ($QUANT_SCHEME)."
         echo ""
 
-        # Wait for 1 second to prevent a race condition
+        # Prevent a race condition
         sleep 1
     done
 done

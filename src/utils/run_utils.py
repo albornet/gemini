@@ -1,7 +1,8 @@
 import os
 import re
-import torch
 import yaml
+import socket
+import psutil
 from argparse import ArgumentParser
 
 
@@ -132,31 +133,6 @@ def load_config_files(script_args) -> dict:
     return run_config
 
 
-def set_torch_cuda_arch_list() -> None:
-    """
-    Sets the TORCH_CUDA_ARCH_LIST environment variable to the CUDA compute
-    capability of the current GPU(s). This prevents PyTorch from compiling
-    kernels for all possible architectures, reducing compilation time.
-    """
-    if not torch.cuda.is_available():
-        print("CUDA is not available. Skipping TORCH_CUDA_ARCH_LIST setup.")
-        return
-
-    # Get the current GPU's compute capability.
-    # For example, on an RTX 3080, this will return a tuple like (8, 6).
-    major, minor = torch.cuda.get_device_capability(device=None)
-    
-    # Note: the required format is 'X.Y', not 'sm_XY'.
-    cuda_arch_value = f"{major}.{minor}"
-    
-    # Check if the environment variable is already set correctly
-    if os.environ.get('TORCH_CUDA_ARCH_LIST') != cuda_arch_value:
-        print(f"Setting TORCH_CUDA_ARCH_LIST to '{cuda_arch_value}' for efficient compilation.")
-        os.environ['TORCH_CUDA_ARCH_LIST'] = cuda_arch_value
-    else:
-        print(f"TORCH_CUDA_ARCH_LIST is already set to '{cuda_arch_value}'.")
-
-
 def extract_quant_method(
     model_id_or_path: str,
     quant_map: dict = {
@@ -188,3 +164,41 @@ def extract_quant_method(
     # If no known quantization method is found, the model is likely in a 
     # native format like FP16 or BF16
     return None
+
+
+def set_distributed_environment():
+    """
+    Automatically detects the primary network interface and sets environment
+    variables for torch.distributed (Gloo/NCCL) to prevent socket binding errors
+    on systems with multiple network interfaces.
+    """
+    # Connects to a public DNS server to find the OS's preferred outbound IP
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("8.8.8.8", 80))
+            primary_ip = s.getsockname()[0]
+    except Exception as e:
+        print(f"Could not automatically determine the primary IP address: {e}")
+        print("You may need to set GLOO_SOCKET_IFNAME and NCCL_SOCKET_IFNAME manually.")
+        return
+
+    # Find the interface name that corresponds to this IP address
+    interface_name = None
+    all_interfaces = psutil.net_if_addrs()
+    for if_name, addrs in all_interfaces.items():
+        for addr in addrs:
+            if addr.family == socket.AF_INET and addr.address == primary_ip:
+                interface_name = if_name
+                break
+        if interface_name:
+            break
+
+    # Set the environment variables for both Gloo (CPU) and NCCL (GPU) backends
+    if interface_name:
+        print(f"Automatically detected primary network interface: '{interface_name}' with IP: {primary_ip}")
+        os.environ['GLOO_SOCKET_IFNAME'] = interface_name
+        os.environ['NCCL_SOCKET_IFNAME'] = interface_name
+        print(f"Successfully set GLOO_SOCKET_IFNAME and NCCL_SOCKET_IFNAME to '{interface_name}'")
+    else:
+        print("Failed to find a network interface matching the primary IP.")
+        print("You may need to set GLOO_SOCKET_IFNAME and NCCL_SOCKET_IFNAME manually.")

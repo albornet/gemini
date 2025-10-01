@@ -1,9 +1,10 @@
 #!/bin/bash
 
 # --- Default values for arguments ---
-PARTITION="private-teodoro-gpu"
+PARTITION="shared-gpu"
 TIME="0-00:15:00"
 GPUS_PER_TASK=1
+NODE_LIST="gpu034,gpu035"  # the ones from private-teodoro-gpu
 
 # --- Help/usage function ---
 usage() {
@@ -13,9 +14,10 @@ usage() {
     echo "  -p, --partition       Slurm partition to use      (Default: ${PARTITION})"
     echo "  -t, --time            Job time limit (D-HH:MM:SS) (Default: ${TIME})"
     echo "  -g, --gpus-per-task   Number of GPUs per task     (Default: ${GPUS_PER_TASK})"
+    echo "  -n, --nodelist        Comma-separated node list   (Default: ${NODE_LIST})" # <-- NEW
     echo "  -h, --help            Display this help message"
     echo "Example:"
-    echo "  $0 -p shared-gpu -p public-gpu -t 0-01:00:00 -g 2"
+    echo "  $0 -p shared-gpu -t 0-01:00:00 -g 1 -n gpu029,gpu032,gpu033,gpu045"
     exit 1
 }
 
@@ -26,8 +28,7 @@ while [[ $# -gt 0 ]]; do
         -p|--partition)
         if [[ -n "$2" && "$2" != -* ]]; then
             PARTITION="$2"
-            shift # past argument
-            shift # past value
+            shift 2
         else
             echo "Error: Argument for $1 is missing" >&2
             exit 1
@@ -36,8 +37,7 @@ while [[ $# -gt 0 ]]; do
         -t|--time)
         if [[ -n "$2" && "$2" != -* ]]; then
             TIME="$2"
-            shift # past argument
-            shift # past value
+            shift 2
         else
             echo "Error: Argument for $1 is missing" >&2
             exit 1
@@ -46,8 +46,16 @@ while [[ $# -gt 0 ]]; do
         -g|--gpus-per-task)
         if [[ -n "$2" && "$2" != -* ]]; then
             GPUS_PER_TASK="$2"
-            shift # past argument
-            shift # past value
+            shift 2
+        else
+            echo "Error: Argument for $1 is missing" >&2
+            exit 1
+        fi
+        ;;
+        -n|--nodelist)
+        if [[ -n "$2" && "$2" != -* ]]; then
+            NODE_LIST="$2"
+            shift 2
         else
             echo "Error: Argument for $1 is missing" >&2
             exit 1
@@ -68,6 +76,7 @@ echo "Submitting job with the following configuration:"
 echo "  Partition:         ${PARTITION}"
 echo "  Time Limit:        ${TIME}"
 echo "  GPUs per Task:     ${GPUS_PER_TASK}"
+echo "  Node List:         ${NODE_LIST}" # <-- NEW
 echo "-----------------------------------------------"
 
 # --- Slurm job configuration ---
@@ -77,7 +86,7 @@ NTASKS=1
 CPUS_PER_TASK=8
 CONSTRAINT=""
 # CONSTRAINT="COMPUTE_MODEL_RTX_3090_25G"
-CONSTRAINT="COMPUTE_MODEL_RTX_3090_25G|COMPUTE_MODEL_RTX_4090_25G"
+# CONSTRAINT="COMPUTE_MODEL_RTX_3090_25G|COMPUTE_MODEL_RTX_4090_25G"
 
 # --- Python environment configuration ---
 SIF_FOLDER="/home/users/b/borneta/sif"
@@ -109,6 +118,7 @@ sbatch <<EOF
 #!/bin/bash
 #SBATCH --job-name=${JOB_NAME}
 #SBATCH --partition=${PARTITION}
+#SBATCH --nodelist=${NODE_LIST}
 #SBATCH --nodes=${NODES}
 #SBATCH --ntasks=${NTASKS}
 #SBATCH --gpus-per-task=${GPUS_PER_TASK}

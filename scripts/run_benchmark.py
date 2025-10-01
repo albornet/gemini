@@ -3,28 +3,31 @@ import gc
 import argparse
 from typing import Any
 from functools import partial
+
+# Set distributed environment setup before importing torch, vLLM, or transformer
+from src.utils.run_utils import set_distributed_environment
+set_distributed_environment()
+
 import torch
 import torch.distributed as torch_dist
 import torch.multiprocessing as torch_mp
 from transformers import AutoModelForCausalLM
-from llama_cpp import Llama
-from vllm import LLM
 from datasets import Dataset
+
 from src.models.llm_evaluation import (
     get_gpu_memory_usage_by_pid,
     compute_and_save_metrics,
-    plot_metrics,
     print_gpu_info,
 )
 from src.models.llm_inference import process_samples
 from src.models.llm_loader import load_model
 from src.data.prompting import build_messages
 from src.data.data_loading import load_data_formatted_for_benchmarking
+from src.utils.plot_utils import plot_metrics
 from src.utils.run_utils import (
     load_config_files,
     add_model_arguments,
     add_data_arguments,
-    set_torch_cuda_arch_list,
     extract_quant_method,
 )
 
@@ -77,8 +80,8 @@ def record_one_benchmark(
         # Record results
         benchmark_results = benchmark_one_model(
             cfg=cfg,
-            dataset=dataset,
             model=model,
+            dataset=dataset,
         )
 
         # Compute and save benchmark results
@@ -116,8 +119,8 @@ def record_one_benchmark(
 
 def benchmark_one_model(
     cfg: dict[str, Any],
+    model: AutoModelForCausalLM,
     dataset: Dataset,
-    model: AutoModelForCausalLM | LLM | Llama,
 ) -> dict[str, Dataset|float]:
     """
     Prompts a generative LLM with medical questions and computes metrics
@@ -133,7 +136,7 @@ def benchmark_one_model(
 
     # Time execution time for processing samples
     start_event.record()
-    dataset_with_outputs = process_samples(dataset, model, **cfg)
+    dataset_with_outputs = process_samples(model, dataset, **cfg)
     end_event.record()
 
     # Wait for all kernels on all GPUs to finish BEFORE measuring time.
@@ -182,8 +185,33 @@ def save_benchmark_results(
     plot_metrics(metric_path=metric_path)
 
 
+def set_torch_cuda_arch_list() -> None:
+    """
+    Sets the TORCH_CUDA_ARCH_LIST environment variable to the CUDA compute
+    capability of the current GPU(s). This prevents PyTorch from compiling
+    kernels for all possible architectures, reducing compilation time.
+    """
+    if not torch.cuda.is_available():
+        print("CUDA is not available. Skipping TORCH_CUDA_ARCH_LIST setup.")
+        return
+
+    # Get the current GPU's compute capability
+    major, minor = torch.cuda.get_device_capability(device=None)
+    cuda_arch_value = f"{major}.{minor}"  # required format is 'X.Y', not 'sm_XY'
+
+    # Check if the environment variable is already set correctly
+    if os.environ.get('TORCH_CUDA_ARCH_LIST') != cuda_arch_value:
+        print(f"Setting TORCH_CUDA_ARCH_LIST to '{cuda_arch_value}' for efficient compilation.")
+        os.environ['TORCH_CUDA_ARCH_LIST'] = cuda_arch_value
+    else:
+        print(f"TORCH_CUDA_ARCH_LIST is already set to '{cuda_arch_value}'.")
+
+
 if __name__ == "__main__":
-    # Provide an architecture list to help the inference backends
+    """
+    Entry point for running the benchmark script
+    """
+    # Provide environment variables to help the inference backend
     set_torch_cuda_arch_list()
 
     # Parse command line arguments

@@ -1,6 +1,6 @@
 # Model configuration
-model_path: unsloth/Qwen3-0.6B-GGUF
-quant_scheme: Q2_K_XL
+model_path: unsloth/Qwen3-8B-GGUF
+quant_scheme: Q8_0
 reasoning_parser: qwen3  # deepseek_r1, qwen3, ... /!\ use deepseek_r1 for explicitely thinking models, qwen3 otherwise
 reasoning_config:                                                  # NOT USED FOR NOW
   think_start_str: "<think>"                                       # NOT USED FOR NOW
@@ -9,7 +9,7 @@ reasoning_config:                                                  # NOT USED FO
 # Backend configuration
 inference_backend: vllm-serve-async
 max_concurrent_requests: 64  # client-side ("semaphore", only used for vllm-serve or vllm-serve-async)
-max_concurrent_inferences: 64  # server-side ("--max-num-seqs", only used for vllm-serve or vllm-serve-async)
+max_concurrent_inferences: 256  # server-side ("--max-num-seqs", only used for vllm-serve or vllm-serve-async)
 
 # Inference configuration
 n_inference_repeats: 5  # number of times each inference is repeated for benchmark

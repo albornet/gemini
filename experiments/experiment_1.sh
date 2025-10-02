@@ -2,13 +2,18 @@
 
 # Slurm configuration
 PARTITION="shared-gpu"
-TIME_TO_RUN="0-05:00:00"
+TIME_TO_RUN="0-04:00:00"
 NUM_GPUS=1
 
-# Node and GPU memory configuration
-DEFAULT_NODE_LIST="gpu034,gpu035"                   # 24GB GPUs
-LARGE_MEM_NODE_LIST="gpu020,gpu030,gpu031,gpu028"   # 40GB GPUs
-LARGER_MEM_NODE_LIST="gpu029,gpu032,gpu033,gpu045"  # 80GB GPUs
+# # Node and GPU memory configuration (Baobab)
+# DEFAULT_NODE_LIST="gpu034,gpu035"                   # 24GB GPUs
+# LARGE_MEM_NODE_LIST="gpu020,gpu030,gpu031,gpu028"   # 40GB GPUs
+# LARGER_MEM_NODE_LIST="gpu029,gpu032,gpu033,gpu045"  # 80GB GPUs
+
+# Node and GPU memory configuration (Bamboo) - Note: gpu008 has no CUDA drivers!
+DEFAULT_NODE_LIST="gpu002,gpu003,gpu007"            # 24-97GB GPUs
+LARGE_MEM_NODE_LIST="gpu003,gpu007,gpu005,gpu006"   # 80-141GB GPUs
+LARGER_MEM_NODE_LIST="gpu003,gpu007,gpu005,gpu006"  # 80-141GB GPUs
 
 # Benchmark configuration
 CONFIG_FILE="./configs/model_config.yaml"
@@ -20,8 +25,8 @@ INFERENCE_BACKEND="vllm-serve-async"
 
 # Models to test
 MODEL_PATHS=(
-    "unsloth/Qwen3-0.6B-GGUF"
-    # "unsloth/Qwen3-1.7B-GGUF"
+    "unsloth/Qwen3-0.6B-GGUF"  # still to submit (Bamboo)!
+    "unsloth/Qwen3-1.7B-GGUF"  # still to submit (Bamboo)!
     # "unsloth/Qwen3-4B-GGUF"
     # "unsloth/Qwen3-8B-GGUF"
     # "unsloth/Qwen3-14B-GGUF"
@@ -31,11 +36,11 @@ MODEL_PATHS=(
 # Quantizations to test
 QUANT_SCHEMES=(
     "Q2_K_XL"
-    # "Q3_K_XL"
-    # "Q4_K_XL"
-    # "Q5_K_XL"
-    # "Q6_K_XL"
-    # "Q8_0"
+    "Q3_K_XL"
+    "Q4_K_XL"
+    "Q5_K_XL"
+    "Q6_K_XL"
+    "Q8_0"
 )
 
 # Node requirements mapping
@@ -64,7 +69,7 @@ for MODEL_PATH in "${MODEL_PATHS[@]}"; do
                 GPU_MEM_UTIL="0.90"
                 echo "   Found custom config: targeting larger-memory nodes: $NODE_LIST_TO_USE"
             elif [[ "$NODE_LIST_TO_USE" == "$LARGE_MEM_NODE_LIST" ]]; then
-                GPU_MEM_UTIL="0.85"
+                GPU_MEM_UTIL="0.90"
                 echo "   Found custom config: targeting large-memory nodes: $NODE_LIST_TO_USE"
             fi
 

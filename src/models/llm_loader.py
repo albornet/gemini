@@ -1,5 +1,6 @@
 import time
 import httpx
+import psutil
 import socket
 import subprocess
 import torch
@@ -58,6 +59,8 @@ def _load_model_vllm_server(
     max_concurrent_inferences: int | None = None,
     num_gpus_to_use: int = 1,
     gpu_memory_utilization: float = 0.9,
+    max_swap_space_gb: int = 8,
+    max_batched_tokens: int = 32768,
     host: str = "localhost",
     port: int | None = None,
     client_timeout: int | float = 7200,
@@ -73,24 +76,30 @@ def _load_model_vllm_server(
     cmd = ["python", "-m", "vllm.entrypoints.openai.api_server"]
     if port is None: port = find_free_port()
     params = {
+        # Server configuration
         "--host": host,
         "--port": str(port),
+        "--model": model_path,
         "--tensor-parallel-size": str(num_gpus_to_use),
-        "--gpu-memory-utilization": str(gpu_memory_utilization),
-        "--max-model-len": str(max_context_length) if max_context_length else None,
-        "--max-num-seqs": str(max_concurrent_inferences) if max_concurrent_inferences else None,
         "--reasoning-parser": str(reasoning_parser) if reasoning_parser else None,
-        # "--reasoning-config": str(reasoning_config) if reasoning_config else None,  # NOT SUPPORTED FOR NOW
+
+        # Memory and batching
+        "--gpu-memory-utilization": str(gpu_memory_utilization),
+        # "--swap-space": str(get_swap_space_gb(max=max_swap_space_gb)),
+        # "--max-num-batched-tokens": str(max_batched_tokens),
+        "--max-num-seqs": str(max_concurrent_inferences) if max_concurrent_inferences else None,
+        "--max-model-len": str(max_context_length) if max_context_length else None,
+
+        # Performance
+        "--dtype": "auto",  # should be bfloat16 if possible and float16 if not
+        "--quantization": quant_method if quant_method else None,
+        "--enforce-eager": None,
     }
 
-    # Add model and backend-specific parameters
-    model_to_serve = model_path
+    # Special case for gguf models, where model file is pre-downloaded locally
     if quant_method == "gguf":
-        model_to_serve = download_gguf_by_quant(model_path, quant_scheme)
-        # params["--tokenizer"] = get_tokenizer_name(model_path)  # <-- ?
-    elif quant_method:
-        params["--quantization"] = quant_method
-    params["--model"] = model_to_serve
+        params["--model"] = download_gguf_by_quant(model_path, quant_scheme)
+        # params["--tokenizer"] = get_tokenizer_name(model_path)?
 
     # Convert parameters to command-line arguments
     for key, value in params.items():
@@ -100,7 +109,7 @@ def _load_model_vllm_server(
     # Launch the server and wait for it to be ready
     base_url = f"http://{host}:{port}"
     server_process = subprocess.Popen(cmd)
-    print(f"\nStarting vLLM server for '{model_to_serve}' at {base_url}")
+    print(f"\nStarting vLLM server for '{params["--model"]}' at {base_url}")
     try:
         wait_for_vllm_server_ready(server_process, base_url)
 
@@ -134,7 +143,7 @@ def _load_model_llama_cpp(
     # Quantization method check
     if quant_method != "gguf":
         raise ValueError(f"Llama-cpp does not support format {quant_method}")
-    
+
     return Llama.from_pretrained(
         repo_id=model_path,
         filename=f"*{quant_scheme}.gguf",
@@ -277,6 +286,22 @@ def find_free_port() -> int:
         # Get the port number assigned by the OS.
         port = s.getsockname()[1]
         return port
+
+
+def get_swap_space_gb(percentage=0.5, max=None):
+    """
+    Calculates the recommended vLLM swap space in GB based on a percentage
+    of the total available CPU RAM.
+    """
+    total_ram_bytes = psutil.virtual_memory().total
+    total_ram_gb = total_ram_bytes / (1024 ** 3) # Convert bytes to gigabytes
+    
+    # Calculate swap space and convert to an integer
+    swap_gb = int(total_ram_gb * percentage)
+    if max is not None and swap_gb > max:
+        swap_gb = max
+    
+    return swap_gb
 
 
 def wait_for_vllm_server_ready(

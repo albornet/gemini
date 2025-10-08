@@ -1,6 +1,6 @@
 # Model configuration
-model_path: unsloth/Qwen3-0.6B-GGUF
-quant_scheme: Q4_K_XL
+model_path: unsloth/Qwen3-1.7B-GGUF
+quant_scheme: Q3_K_XL
 reasoning_parser: qwen3  # deepseek_r1, qwen3, ... /!\ use deepseek_r1 for explicitely thinking models, qwen3 otherwise
 reasoning_config:                                                  # NOT USED FOR NOW
   think_start_str: "<think>"                                       # NOT USED FOR NOW
@@ -22,6 +22,6 @@ use_flash_attention: true  # only used for llama-cpp backend
 
 # Run parameters
 num_gpus_to_use: null  # if null, will take all available gpus by default (see run_benchmark.sh)
-gpu_memory_utilization: 0.90
+gpu_memory_utilization: 0.80
 skip_to_next_model_if_error: true
-delete_model_cache_after_run: true  # note: not used for now! but see llm_loader with cache_path
+delete_model_cache_after_run: true

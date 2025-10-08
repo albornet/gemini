@@ -1,11 +1,11 @@
 output_schema_name: PatientInfoSchema
 output_schema_dict:
-  description:
-    title: Description
-    type: string
-    description: Eléments permettant de déterminer le score mRS du patient.
-    default: Not extracted
-    maxLength: 512
+  # description:  # TODO: IGNORE IF REASONING MODEL, KEEP IF NOT (SEE PROMPT_CONFIG ALSO)
+  #   title: Description
+  #   type: string
+  #   description: Eléments permettant de déterminer le score mRS du patient.
+  #   default: Not extracted
+  #   maxLength: 512
   mRS:
     title: Score mRS
     type: integer

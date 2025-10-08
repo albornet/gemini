@@ -5,8 +5,18 @@ From: pytorch/pytorch:2.8.0-cuda12.9-cudnn9-devel
     requirements.txt /app/
 
 %post
+    # Set correct permissions for /tmp to fix apt-key errors
+    chmod 1777 /tmp
+
     # Install basics
-    apt-get update && apt-get install -y build-essential cmake git python3 python3-pip curl ca-certificates
+    apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        cmake \
+        git \
+        python3 \
+        python3-pip \
+        curl \
+        ca-certificates
     ln -s /usr/bin/python3 /usr/bin/python
 
     # Use uv to create a virtual environment and install packages

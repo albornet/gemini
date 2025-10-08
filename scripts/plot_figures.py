@@ -8,7 +8,9 @@ import statsmodels.formula.api as smf
 
 INPUT_DIR = "results/vllm-serve-async_guided"
 OUTPUT_DIR = os.path.join(INPUT_DIR, "pooled")
-OUTPUT_NAME = "pooled_results_qwen3_abiram_09_30"
+OUTPUT_NAME = "pooled_results_qwen3_abiram"
+PLOTTED_X_ID = "vram"
+PLOTTED_Y_ID = "distance"
 CASES = [
     "single model",
     "maj-pooling-3",
@@ -17,18 +19,14 @@ CASES = [
     "all 5 models"
 ]
 X_CONFIGS = {
-    "vram": {"key": "VRAM param usage", "unit": "GB", "lim": None},
-    "nparams": {"key": "Number of params", "unit": "Billion", "lim": None},
-    "nbits": {"key": "Bits/param", "unit": "[]", "lim": None},
+    "vram": {"key": "VRAM param usage", "unit": "GB", "lim": None, "log": True},
+    "nparams": {"key": "Number of params", "unit": "Billion", "lim": None, "log": True},
+    "nbits": {"key": "Bits/param", "unit": "[]", "lim": None, "log": False},
 }
 Y_CONFIGS = {
-    "error": {"key": "Error Rate", "unit": "%", "lim": [0.0, 1.1]},
-    "distance": {"key": "Distance", "unit": "%", "lim": [0.0, 4.0]},
+    "error": {"key": "Error Rate", "unit": "%", "lim": [0.0, 1.1], "log": False},
+    "distance": {"key": "Distance", "unit": "mRS unit", "lim": [0.1, 5.0], "log": True},
 }
-PLOTTED_X_ID = "vram"
-PLOTTED_Y_ID = "error"
-X_AXIS_LOG = True
-Y_AXIS_LOG = False
 GROUP_COLORS = [
     "tab:blue", "tab:orange", "tab:green", "tab:red", "tab:purple",
     "tab:brown", "tab:pink", "tab:gray", "tab:olive", "tab:cyan",
@@ -107,10 +105,10 @@ def generate_error_rate_plot(
                 csv_data.extend(group_data_points)
 
         # Configure subplot
-        x_label = f"{X_CONFIGS[PLOTTED_X_ID]['key']} ({X_CONFIGS[PLOTTED_X_ID]['unit']})"
-        y_label = f"{Y_CONFIGS[PLOTTED_Y_ID]['key']} ({Y_CONFIGS[PLOTTED_Y_ID]['unit']})"
-        if X_AXIS_LOG: axes_flat[i].set_xscale('log')
-        if Y_AXIS_LOG: axes_flat[i].set_yscale('log')
+        x_label = f"{X_CONFIGS[PLOTTED_X_ID]['key']} [{X_CONFIGS[PLOTTED_X_ID]['unit']}]"
+        y_label = f"{Y_CONFIGS[PLOTTED_Y_ID]['key']} [{Y_CONFIGS[PLOTTED_Y_ID]['unit']}]"
+        if X_CONFIGS[PLOTTED_X_ID]['log']: axes_flat[i].set_xscale('log')
+        if Y_CONFIGS[PLOTTED_Y_ID]['log']: axes_flat[i].set_yscale('log')
         axes_flat[i].set_xlabel(x_label, fontsize=12)
         axes_flat[i].set_ylabel(y_label, fontsize=12)
         axes_flat[i].set_ylim(Y_CONFIGS[PLOTTED_Y_ID]["lim"])
@@ -118,7 +116,7 @@ def generate_error_rate_plot(
         axes_flat[i].tick_params(axis="x", labelsize=10)
         axes_flat[i].grid(True, linestyle="--", alpha=0.6)
         axes_flat[i].set_title(f"Prediction with {case_name}", fontsize=14, pad=10)
-        axes_flat[i].legend(loc="lower left", fontsize=12, fancybox=True, ncol=1)
+        axes_flat[i].legend(loc="upper right", fontsize=12, fancybox=True, ncol=1)
 
     # Save the pooled results figure
     fig.tight_layout(rect=[0, 0.03, 1, 0.95])
@@ -171,7 +169,8 @@ if __name__ == "__main__":
             "unsloth/Qwen3-0.6B-GGUF-Q5_K_XL.json",
             "unsloth/Qwen3-0.6B-GGUF-Q6_K_XL.json",
             "unsloth/Qwen3-0.6B-GGUF-Q8_0.json",
-            ],
+            "Qwen/Qwen3-0.6B-FP8.json",
+        ],
 
         "Qwen3-1.7B": [
             # "unsloth/Qwen3-1.7B-GGUF-IQ1_M.json",
@@ -181,6 +180,7 @@ if __name__ == "__main__":
             "unsloth/Qwen3-1.7B-GGUF-Q5_K_XL.json",
             "unsloth/Qwen3-1.7B-GGUF-Q6_K_XL.json",
             "unsloth/Qwen3-1.7B-GGUF-Q8_0.json",
+            "Qwen/Qwen3-1.7B-FP8.json",
         ],
 
         "Qwen3-4B": [
@@ -191,6 +191,8 @@ if __name__ == "__main__":
             "unsloth/Qwen3-4B-GGUF-Q5_K_XL.json",
             "unsloth/Qwen3-4B-GGUF-Q6_K_XL.json",
             "unsloth/Qwen3-4B-GGUF-Q8_0.json",
+            "Qwen/Qwen3-4B-AWQ.json",
+            "Qwen/Qwen3-4B-FP8.json",
         ],
 
         "Qwen3-8B": [
@@ -201,6 +203,8 @@ if __name__ == "__main__":
             "unsloth/Qwen3-8B-GGUF-Q5_K_XL.json",
             "unsloth/Qwen3-8B-GGUF-Q6_K_XL.json",
             "unsloth/Qwen3-8B-GGUF-Q8_0.json",
+            "Qwen/Qwen3-8B-AWQ.json",
+            "Qwen/Qwen3-8B-FP8.json",
         ],
 
         "Qwen3-14B": [
@@ -211,6 +215,8 @@ if __name__ == "__main__":
             "unsloth/Qwen3-14B-GGUF-Q5_K_XL.json",
             "unsloth/Qwen3-14B-GGUF-Q6_K_XL.json",
             "unsloth/Qwen3-14B-GGUF-Q8_0.json",
+            "Qwen/Qwen3-14B-AWQ.json",
+            "Qwen/Qwen3-14B-FP8.json",
         ],
 
         "Qwen3-32B": [
@@ -221,6 +227,8 @@ if __name__ == "__main__":
             "unsloth/Qwen3-32B-GGUF-Q5_K_XL.json",
             "unsloth/Qwen3-32B-GGUF-Q6_K_XL.json",
             "unsloth/Qwen3-32B-GGUF-Q8_0.json",
+            "Qwen/Qwen3-32B-AWQ.json",
+            "Qwen/Qwen3-32B-FP8.json",
         ],
 
     }
@@ -238,5 +246,5 @@ if __name__ == "__main__":
         output_dir=OUTPUT_DIR,
     )
 
-    # Identify statistical patterns using linear mixed-effects models
-    lme_results = fit_error_model_lme(pd.read_csv(output_csv_path))
+    # # Identify statistical patterns using linear mixed-effects models
+    # lme_results = fit_error_model_lme(pd.read_csv(output_csv_path))

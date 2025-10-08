@@ -2,6 +2,7 @@ import json
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 from collections.abc import Iterable
 from sklearn.metrics import confusion_matrix
 
@@ -103,9 +104,11 @@ def plot_cm(
     y_pred: torch.Tensor,
     title_flag: str,
     possible_labels: list[int] = [-1, 0, 1, 2, 3, 4, 5, 6],  # mRS in this case
+    add_group_patches: bool = True,
 ) -> None:
     """
-    Plot a confusion matrix given model prediction and true label values
+    Plot a confusion matrix given model prediction and true label values.
+    Optionally adds red squares around specified groups of cells.
     """
     # Plot pooled confusion matrix
     cm = confusion_matrix(y_true, y_pred, labels=possible_labels)
@@ -127,3 +130,22 @@ def plot_cm(
                 color = "white" if value > max_cm_value / 2 else "black"
                 ax.text(j, i, str(value), ha="center", va="center", color=color)
 
+    # If required, add squares to highlight label groups
+    if add_group_patches:
+        # Group 1: no impairement (label = from 0 to 1)
+        ax.add_patch(patches.Rectangle(
+            xy=(0.5, 0.5), width=2, height=2, linewidth=2, zorder=10,
+            edgecolor='tab:red', facecolor='none',
+        ))
+
+        # Group 2: impairement (label = from 2 to 5)
+        ax.add_patch(patches.Rectangle(
+            xy=(2.5, 2.5), width=4, height=4, linewidth=2, zorder=10,
+            edgecolor='tab:red', facecolor='none',
+        ))
+
+        # Group 3: dead (label = 6)
+        ax.add_patch(patches.Rectangle(
+            xy=(6.5, 6.5), width=1, height=1, linewidth=2, zorder=10,
+            edgecolor='tab:red', facecolor='none',
+        ))

@@ -10,7 +10,7 @@ INPUT_DIR = "results/vllm-serve-async_guided"
 OUTPUT_DIR = os.path.join(INPUT_DIR, "pooled")
 OUTPUT_NAME = "pooled_results_qwen3_abiram"
 PLOTTED_X_ID = "vram"
-PLOTTED_Y_ID = "distance"
+PLOTTED_Y_ID = "error"
 CASES = [
     "single model",
     "maj-pooling-3",
@@ -19,7 +19,7 @@ CASES = [
     "all 5 models"
 ]
 X_CONFIGS = {
-    "vram": {"key": "VRAM param usage", "unit": "GB", "lim": None, "log": True},
+    "vram": {"key": "VRAM param usage", "unit": "GB", "lim": [0.1, 20.0], "log": True},
     "nparams": {"key": "Number of params", "unit": "Billion", "lim": None, "log": True},
     "nbits": {"key": "Bits/param", "unit": "[]", "lim": None, "log": False},
 }
@@ -107,11 +107,16 @@ def generate_error_rate_plot(
         # Configure subplot
         x_label = f"{X_CONFIGS[PLOTTED_X_ID]['key']} [{X_CONFIGS[PLOTTED_X_ID]['unit']}]"
         y_label = f"{Y_CONFIGS[PLOTTED_Y_ID]['key']} [{Y_CONFIGS[PLOTTED_Y_ID]['unit']}]"
-        if X_CONFIGS[PLOTTED_X_ID]['log']: axes_flat[i].set_xscale('log')
-        if Y_CONFIGS[PLOTTED_Y_ID]['log']: axes_flat[i].set_yscale('log')
+        if X_CONFIGS[PLOTTED_X_ID]['log']:
+            axes_flat[i].set_xscale('log')
+        if Y_CONFIGS[PLOTTED_Y_ID]['log']:
+            axes_flat[i].set_yscale('log')
         axes_flat[i].set_xlabel(x_label, fontsize=12)
         axes_flat[i].set_ylabel(y_label, fontsize=12)
-        axes_flat[i].set_ylim(Y_CONFIGS[PLOTTED_Y_ID]["lim"])
+        if X_CONFIGS[PLOTTED_X_ID]["lim"] is not None:
+            axes_flat[i].set_xlim(X_CONFIGS[PLOTTED_X_ID]["lim"])
+        if Y_CONFIGS[PLOTTED_Y_ID]["lim"] is not None:
+            axes_flat[i].set_ylim(Y_CONFIGS[PLOTTED_Y_ID]["lim"])
         axes_flat[i].tick_params(axis="y", labelsize=10)
         axes_flat[i].tick_params(axis="x", labelsize=10)
         axes_flat[i].grid(True, linestyle="--", alpha=0.6)

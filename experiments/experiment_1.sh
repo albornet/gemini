@@ -4,6 +4,7 @@
 PARTITION="shared-gpu"
 TIME_TO_RUN="0-04:00:00"
 NUM_GPUS=1
+MAX_CONCURRENT_INFS="256"  # todo: check if very large models fail with 256 and would require 64
 
 # # Node and GPU memory configuration (Baobab)
 # DEFAULT_NODE_LIST="gpu034,gpu035"                   # 24GB GPUs
@@ -88,6 +89,7 @@ for MODEL_PATH in "${MODEL_PATHS[@]}"; do
         sed -i "s|^quant_scheme:.*|quant_scheme: $QUANT_SCHEME|" "$CONFIG_FILE"
         sed -i "s|^inference_backend:.*|inference_backend: $INFERENCE_BACKEND|" "$CONFIG_FILE"
         sed -i "s|^gpu_memory_utilization:.*|gpu_memory_utilization: $GPU_MEM_UTIL|" "$CONFIG_FILE"
+        sed -i "s|^max_concurrent_inferences:.*|max_concurrent_infs: $MAX_CONCURRENT_INFS|" "$CONFIG_FILE"
         echo "Updated '$CONFIG_FILE'."
 
         # Submit the job with the specified parameters

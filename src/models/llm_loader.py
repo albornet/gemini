@@ -72,6 +72,10 @@ def _load_model_vllm_server(
     allowing its output to stream to the terminal, and returns a client
     and the server process handle.
     """
+    # Special case for gguf models, where model file is pre-downloaded locally
+    if quant_method == "gguf":
+        model_path = download_gguf_by_quant(model_path, quant_scheme)  # get_tokenizer_name(model_path)?
+
     # Build the server command declaratively
     cmd = ["python", "-m", "vllm.entrypoints.openai.api_server"]
     if port is None: port = find_free_port()
@@ -95,11 +99,6 @@ def _load_model_vllm_server(
         "--quantization": quant_method if quant_method else None,
         "--enforce-eager": None,
     }
-
-    # Special case for gguf models, where model file is pre-downloaded locally
-    if quant_method == "gguf":
-        params["--model"] = download_gguf_by_quant(model_path, quant_scheme)
-        # params["--tokenizer"] = get_tokenizer_name(model_path)?
 
     # Convert parameters to command-line arguments
     for key, value in params.items():

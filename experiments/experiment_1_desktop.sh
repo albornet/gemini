@@ -3,7 +3,7 @@
 # Configuration
 CONFIG_FILE="./configs/model_config.yaml"
 INFERENCE_BACKEND="vllm-serve-async"
-GPU_MEM_UTIL="0.90"
+GPU_MEM_UTIL="0.80"
 MAX_CONCURRENT_INFS="64"
 
 # Check if the configuration file exists
@@ -14,22 +14,19 @@ fi
 
 # Models and quantizations to test (GGUF)
 MODEL_PATHS=(
-    "unsloth/Qwen3-0.6B-GGUF"
-    # "unsloth/Qwen3-1.7B-GGUF"
-    # "unsloth/Qwen3-4B-GGUF"
-    # "unsloth/Qwen3-8B-GGUF"
-    # "unsloth/Qwen3-14B-GGUF"
-    # "unsloth/Qwen3-32B-GGUF"  # <-- this one doesn't work with Q8_0
-    # "unsloth/Qwen3-30B-A3B-GGUF"
-    # "unsloth/Qwen3-235B-A22B-GGUF"
+    # "unsloth/Qwen3-0.6B-GGUF"
+    "unsloth/Qwen3-1.7B-GGUF"
+    "unsloth/Qwen3-4B-GGUF"
+    "unsloth/Qwen3-8B-GGUF"
 )
 QUANT_SCHEMES=(
-    # "Q2_K_XL"
-    # "Q3_K_XL"
+    "Q2_K_XL"
+    "Q3_K_XL"
     "Q4_K_XL"
-    # "Q5_K_XL"
-    # "Q6_K_XL"
-    # "Q8_0"
+    "Q5_K_XL"
+    "Q6_K_XL"
+    "Q8_0"
+    "Q8_K_XL"
 )
 
 # # Models and quantizations to test (AWQ/FP8)
@@ -55,6 +52,13 @@ for MODEL_PATH in "${MODEL_PATHS[@]}"; do
         echo "   Model: $MODEL_PATH"
         echo "   Quantization: $QUANT_SCHEME"
         echo "--------------------------------------------------------"
+
+        # Set GPU_MEM_UTIL based on model and quantization
+        if [[ "$MODEL_PATH" == "unsloth/Qwen3-8B-GGUF" && ( "$QUANT_SCHEME" == "Q8_0" || "$QUANT_SCHEME" == "Q8_K_XL" ) ]]; then
+            GPU_MEM_UTIL="0.90"
+        else
+            GPU_MEM_UTIL="0.80"  # reset to default for other combinations
+        fi
 
         # Update the model configuration file
         sed -i "s|^model_path:.*|model_path: $MODEL_PATH|" "$CONFIG_FILE"

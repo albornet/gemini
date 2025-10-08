@@ -29,6 +29,7 @@ from src.utils.run_utils import (
     add_model_arguments,
     add_data_arguments,
     extract_quant_method,
+    clean_model_cache,
 )
 
 
@@ -92,7 +93,7 @@ def record_one_benchmark(
     except Exception as e:
         print(f"An error occurred during benchmarking: {e}")
         raise 
-    
+
     # Cleanup Logic
     finally:
         print("Cleaning up resources...")
@@ -115,6 +116,10 @@ def record_one_benchmark(
         gc.collect()
         print_gpu_info()
         print("Cleaned memory")
+
+        # Clean model cache
+        if cfg["delete_model_cache_after_run"]:
+            clean_model_cache(cfg["model_path"])
 
 
 def benchmark_one_model(

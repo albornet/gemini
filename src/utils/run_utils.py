@@ -4,6 +4,7 @@ import yaml
 import socket
 import psutil
 from argparse import ArgumentParser
+from huggingface_hub import HfApi
 
 
 def add_model_arguments(parser: ArgumentParser) -> None:
@@ -164,6 +165,40 @@ def extract_quant_method(
     # If no known quantization method is found, the model is likely in a 
     # native format like FP16 or BF16
     return None
+
+
+def clean_model_cache(repo_id: str):
+    """
+    Cleans all cached revisions of the specified repository, freeing up disk space
+    """
+    api = HfApi()
+    try:
+        # Scan the cache to find all revisions (versions) of this repo
+        cache_info = api.scan_cache_dir()
+        revisions_to_delete = []
+        target_repo = next((repo for repo in cache_info.repos if repo.repo_id == repo_id), None)
+
+        if not target_repo:
+            print(f"Repo '{repo_id}' not found in cache. Nothing to delete.")
+            return
+
+        for revision in target_repo.revisions:
+            revisions_to_delete.append(revision.commit_hash)
+
+        # Use the API to cleanly delete all files for these revisions
+        if revisions_to_delete:
+            strategy = api.delete_revisions(
+                repo_id=repo_id,
+                revisions=revisions_to_delete,
+            )
+            print(f"Successfully deleted {repo_id} for {strategy.expected_freed_size_str}")
+        
+        # This should not be reached if target_repo was found, but is a safe check
+        else:
+            print(f"No cached revisions found for '{repo_id}'.")
+    
+    except Exception as e:
+        print(f"An unexpected error occurred while cleaning repo '{repo_id}': {e}")
 
 
 def set_distributed_environment():

@@ -29,12 +29,3 @@ context_data:
       "description": "<courte description des éléments permettant de déterminer le score mRS du patient>",
       "mRS": <nombre entre 0 et 6>
     }
-  # output_specifications: |
-  #   Notes :
-  #   - Il est possible qu'un texte d'entrée ne soit pas une lettre de sortie. Si tu peux en déduire un mRS tout de même, fais-le. Sinon, réponds "-1".
-  #   - Il est possible que le mRS soit explicité dans le texte, auquel cas tu peux directement reporter ce chiffre.
-  #   - Finalement, ta réponse doit être un objet JSON conforme au format suivant :
-  #   {
-  #     "reasoning": "<comment tu as déterminé le mRS>",
-  #     "mRS": <nombre entre 0 et 6>,
-  #   }

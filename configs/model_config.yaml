@@ -1,6 +1,6 @@
 # Model configuration
-model_path: unsloth/Qwen3-8B-GGUF
-quant_scheme: Q8_0
+model_path: unsloth/Qwen3-0.6B-GGUF
+quant_scheme: Q4_K_XL
 reasoning_parser: qwen3  # deepseek_r1, qwen3, ... /!\ use deepseek_r1 for explicitely thinking models, qwen3 otherwise
 reasoning_config:                                                  # NOT USED FOR NOW
   think_start_str: "<think>"                                       # NOT USED FOR NOW
@@ -9,12 +9,12 @@ reasoning_config:                                                  # NOT USED FO
 # Backend configuration
 inference_backend: vllm-serve-async
 max_concurrent_requests: 64  # client-side ("semaphore", only used for vllm-serve or vllm-serve-async)
-max_concurrent_inferences: 256  # server-side ("--max-num-seqs", only used for vllm-serve or vllm-serve-async)
+max_concurrent_infs: 64
 
 # Inference configuration
 n_inference_repeats: 5  # number of times each inference is repeated for benchmark
 use_output_guide: true
-max_context_length: 10000  # 10000 - note: maximum number of tokens in our documents is approximately 8200
+max_context_length: 12000  # note: maximum number of tokens in our documents is approximately 8200, and prompt size is about 1000 tokens
 max_new_tokens: 1536  # 1024 - note: this corresponds to the maximum generated tokens
 top_p: 0.90
 temperature: 0.60  # TODO: REDO ENTIRE EXPERIMENT WITH 0.60
@@ -22,6 +22,6 @@ use_flash_attention: true  # only used for llama-cpp backend
 
 # Run parameters
 num_gpus_to_use: null  # if null, will take all available gpus by default (see run_benchmark.sh)
-gpu_memory_utilization: 0.80
+gpu_memory_utilization: 0.90
 skip_to_next_model_if_error: true
 delete_model_cache_after_run: true  # note: not used for now! but see llm_loader with cache_path

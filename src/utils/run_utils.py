@@ -3,8 +3,9 @@ import re
 import yaml
 import socket
 import psutil
+import shutil
 from argparse import ArgumentParser
-from huggingface_hub import HfApi
+from huggingface_hub import scan_cache_dir
 
 
 def add_model_arguments(parser: ArgumentParser) -> None:
@@ -167,38 +168,40 @@ def extract_quant_method(
     return None
 
 
-def clean_model_cache(repo_id: str):
+def clean_model_cache(
+    model_to_delete: str,
+    quant_scheme: str | None = None,
+):
     """
-    Cleans all cached revisions of the specified repository, freeing up disk space
+    Cleans specified cached revisions of a repository from the hugginface cache
     """
-    api = HfApi()
+    # Find the cache repository to delete
+    cache_info = scan_cache_dir()
     try:
-        # Scan the cache to find all revisions (versions) of this repo
-        cache_info = api.scan_cache_dir()
-        revisions_to_delete = []
-        target_repo = next((repo for repo in cache_info.repos if repo.repo_id == repo_id), None)
+        target_repo = next(r for r in cache_info.repos if r.repo_id == model_to_delete)
+    except StopIteration:
+        print(f"Model '{model_to_delete}' not found in cache.")
+        return
 
-        if not target_repo:
-            print(f"Repo '{repo_id}' not found in cache. Nothing to delete.")
-            return
+    # Non-GGUF case (simply delete the model cache directory)
+    if extract_quant_method(model_to_delete) != "gguf":
+        print(f"Deleting entire model directory: {target_repo.repo_path}")
+        shutil.rmtree(target_repo.repo_path)
+        return
 
-        for revision in target_repo.revisions:
-            revisions_to_delete.append(revision.commit_hash)
+    # Identify GGUF-related cache files to delete using a generator
+    files_to_delete = (
+        file for revision in target_repo.revisions for file in revision.files
+        if quant_scheme and quant_scheme in str(file.file_path)
+    )
 
-        # Use the API to cleanly delete all files for these revisions
-        if revisions_to_delete:
-            strategy = api.delete_revisions(
-                repo_id=repo_id,
-                revisions=revisions_to_delete,
-            )
-            print(f"Successfully deleted {repo_id} for {strategy.expected_freed_size_str}")
-        
-        # This should not be reached if target_repo was found, but is a safe check
-        else:
-            print(f"No cached revisions found for '{repo_id}'.")
-    
-    except Exception as e:
-        print(f"An unexpected error occurred while cleaning repo '{repo_id}': {e}")
+    # Iterate over the filtered files and delete them
+    for file in files_to_delete:
+        print(f"Deleting link: {file.file_path}")
+        os.remove(file.file_path)
+        if os.path.exists(file.blob_path):
+            print(f"Deleting blob: {file.blob_path}")
+            os.remove(file.blob_path)
 
 
 def set_distributed_environment():

@@ -279,8 +279,13 @@ def get_model_bits_per_parameter(
     if scheme != scheme_check:
         print(f"Warning: quantization scheme might be wrong for {model_path}: {scheme}")
 
+    # Model quantization without quantization scheme (non-GGUF)
+    if "gptq" in model_path.lower(): return 4
+    if "awq" in model_path.lower(): return 4
+    if "fp4" in model_path.lower(): return 4
+    if "fp8" in model_path.lower(): return 8
+
     # Try to identify the number of bits with my own heuristics
-    if scheme == "no_quant_scheme": return 4  # for awq, etc.
     match = re.search(r"^(?:I?Q)(\d+)", scheme)
     if match: return int(match.group(1))
     if scheme.lower() in ["f16", "fp16"]: return 16

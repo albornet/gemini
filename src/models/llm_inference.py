@@ -83,6 +83,7 @@ def _infer_vllm_serve(
     temperature: float = 1.0,
     top_p: float = 1.0,
     output_guide: dict[str, Any] | None = None,
+    enable_thinking: bool = True,
     *args, **kwargs,
 ) -> list[list[str]]:
     """
@@ -99,7 +100,6 @@ def _infer_vllm_serve(
     )
     def generate_vllm_outputs(messages: list[dict[str, str]]):
         """Single-shot API call function"""
-        extra_body = {"guided_json": output_guide} if output_guide else None
         chat_completion = client.chat.completions.create(
             model=model_name,
             messages=messages,
@@ -107,7 +107,10 @@ def _infer_vllm_serve(
             n=n_inference_repeats,
             temperature=temperature,
             top_p=top_p,
-            extra_body=extra_body,
+            extra_body={
+                "chat_template_kwargs": {"enable_thinking": enable_thinking},
+                "guided_json": output_guide,
+            },
         )
         return _extract_outputs_vllm(chat_completion.choices)
 
@@ -128,6 +131,7 @@ async def _infer_vllm_serve_async(
     temperature: float = 1.0,
     top_p: float = 1.0,
     output_guide: dict[str, Any] | None = None,
+    enable_thinking: bool = True,
     max_concurrent_requests: int = 64,
     *args, **kwargs,
 ) -> list[list[str]]:
@@ -147,7 +151,6 @@ async def _infer_vllm_serve_async(
     async def generate_vllm_outputs(messages: list[dict[str, str]]):
         """Single-shot async API call function, with semaphore control"""
         async with semaphore:
-            extra_body = {"guided_json": output_guide} if output_guide else None
             chat_completion = await client.chat.completions.create(
                 model=model_name,
                 messages=messages,
@@ -155,7 +158,10 @@ async def _infer_vllm_serve_async(
                 n=n_inference_repeats,
                 temperature=temperature,
                 top_p=top_p,
-                extra_body=extra_body,
+                extra_body={
+                    "chat_template_kwargs": {"enable_thinking": enable_thinking},
+                    "guided_json": output_guide,
+                },
             )
             return _extract_outputs_vllm(chat_completion.choices)
 
@@ -214,6 +220,7 @@ def process_samples(
     inference_backend: str,
     n_inference_repeats: int,
     use_output_guide: bool = False,
+    enable_thinking: bool = True,
     output_schema_dict: dict[str, Any] | None = None,
     output_schema_name: str | None = None,
     max_new_tokens: int = 512,
@@ -242,6 +249,7 @@ def process_samples(
         "temperature": temperature,
         "top_p": top_p,
         "output_guide": output_guide,
+        "enable_thinking": enable_thinking,
         **kwargs,
     }
 

@@ -119,7 +119,7 @@ def record_one_benchmark(
 
         # Clean model cache
         if cfg["delete_model_cache_after_run"]:
-            clean_model_cache(cfg["model_path"])
+            clean_model_cache(cfg["model_path"], cfg["quant_scheme"])
 
 
 def benchmark_one_model(

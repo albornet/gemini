@@ -9,8 +9,8 @@ import statsmodels.formula.api as smf
 INPUT_DIR = "results/vllm-serve-async_guided"
 OUTPUT_DIR = os.path.join(INPUT_DIR, "pooled")
 OUTPUT_NAME = "pooled_results_qwen3_abiram"
-PLOTTED_X_ID = "vram"
-PLOTTED_Y_ID = "error"
+PLOTTED_X_ID = "vram"  # "vram", "nparams", "nbits"
+PLOTTED_Y_ID = "error"  # "error", "distance"
 CASES = [
     "single model",
     "maj-pooling-3",
@@ -19,7 +19,7 @@ CASES = [
     "all 5 models"
 ]
 X_CONFIGS = {
-    "vram": {"key": "VRAM param usage", "unit": "GB", "lim": [0.1, 20.0], "log": True},
+    "vram": {"key": "VRAM param usage", "unit": "GB", "lim": [0.1, 50.0], "log": True},
     "nparams": {"key": "Number of params", "unit": "Billion", "lim": None, "log": True},
     "nbits": {"key": "Bits/param", "unit": "[]", "lim": None, "log": False},
 }
@@ -46,6 +46,7 @@ def _extract_metric_value(
             return float(item_data["values"][0])  # Get the first element
         except (ValueError, TypeError, IndexError) as e:
             print(f"Warning: Could not parse value for key {key} from {item_data.get('values')}: {e}. Using default: {default_val}.")
+
     return default_val
 
 
@@ -68,13 +69,14 @@ def generate_error_rate_plot(
         for group_idx, (group_label, result_paths_in_group) in enumerate(result_path_group.items()):
             group_data_points = []
             group_color = GROUP_COLORS[group_idx % len(GROUP_COLORS)]
-
             for result_path in result_paths_in_group:
+
+                # Load data
                 try:
                     with open(result_path, "r") as f:
                         data = json.load(f)
                 except (FileNotFoundError, json.JSONDecodeError) as e:
-                    print(f"Warning: Could not load or parse JSON file {result_path}: {e}. Skipping.")
+                    # print(f"Warning: Could not load or parse JSON file {result_path}: {e}. Skipping.")
                     continue
 
                 extracted_data = {"model": group_label}
@@ -88,6 +90,10 @@ def generate_error_rate_plot(
                     y_id_cased = f"{y_id} - {case_name}"
                     extracted_data[y_id_cased] = _extract_metric_value(data, query_key)
 
+                # Temporary fix for fp8 models (mistakes were made...)
+                if "fp8" in result_path.lower():
+                    extracted_data["nbits"] = extracted_data["nbits"] * 2
+                    extracted_data["vram"] = extracted_data["vram"] * 2
                 group_data_points.append(extracted_data)
 
             # Scatter plot for the current group
@@ -121,7 +127,7 @@ def generate_error_rate_plot(
         axes_flat[i].tick_params(axis="x", labelsize=10)
         axes_flat[i].grid(True, linestyle="--", alpha=0.6)
         axes_flat[i].set_title(f"Prediction with {case_name}", fontsize=14, pad=10)
-        axes_flat[i].legend(loc="upper right", fontsize=12, fancybox=True, ncol=1)
+        axes_flat[i].legend(loc="upper right", fontsize=12, fancybox=True, ncol=2)
 
     # Save the pooled results figure
     fig.tight_layout(rect=[0, 0.03, 1, 0.95])
@@ -143,21 +149,28 @@ def generate_error_rate_plot(
 def fit_error_model_lme(
     df_input: pd.DataFrame,
     dependent_variable: str="error - single model",
-    fixed_effects: list[str]=["vram", "nbits"],
+    fixed_effect_0: str="vram",
+    fixed_effect_1: str="nbits",
+    include_interaction: bool=True,
     random_intercept_group: str="model",
 ):
-    """ Fits a linear mixed-effects model to the provided dataframe
-        The model is defined as: error_single_model ~ vram + nbits + (1|model)
     """
-    # Create a copy to avoid modifying the original DataFrame
+    Fits a linear mixed-effects model to the provided dataframe
+    """
+    # Load data
     df = df_input.copy()
     df.rename(columns={dependent_variable: "target"}, inplace=True)
 
-    # Define interaction model - 'vram * nbits' expands to 'vram + nbits + vram:nbits'
-    model_formula = f"target ~ {fixed_effects[0]} * {fixed_effects[1]}"
+    # Correctly define the model formula
+    if include_interaction:
+        # The '*' operator includes main effects AND the interaction
+        model_formula = f"target ~ {fixed_effect_0} * {fixed_effect_1}"
+    else:
+        # The '+' operator includes main effects ONLY
+        model_formula = f"target ~ {fixed_effect_0} + {fixed_effect_1}"
+
+    # Create and fit the mixed-effects model
     md = smf.mixedlm(model_formula, df, groups=df[random_intercept_group])
-    
-    # Returns fitted mixed-effects model (call ".summary()" for printing results)
     return md.fit()
 
 
@@ -167,73 +180,67 @@ if __name__ == "__main__":
     result_path_group = {
 
         "Qwen3-0.6B": [
-            # "unsloth/Qwen3-0.6B-GGUF-IQ1_M.json",
             "unsloth/Qwen3-0.6B-GGUF-Q2_K_XL.json",
             "unsloth/Qwen3-0.6B-GGUF-Q3_K_XL.json",
             "unsloth/Qwen3-0.6B-GGUF-Q4_K_XL.json",
             "unsloth/Qwen3-0.6B-GGUF-Q5_K_XL.json",
             "unsloth/Qwen3-0.6B-GGUF-Q6_K_XL.json",
             "unsloth/Qwen3-0.6B-GGUF-Q8_0.json",
-            "Qwen/Qwen3-0.6B-FP8.json",
+            # "Qwen/Qwen3-0.6B-FP8-no_quant_scheme.json",
         ],
 
         "Qwen3-1.7B": [
-            # "unsloth/Qwen3-1.7B-GGUF-IQ1_M.json",
             "unsloth/Qwen3-1.7B-GGUF-Q2_K_XL.json",
             "unsloth/Qwen3-1.7B-GGUF-Q3_K_XL.json",
             "unsloth/Qwen3-1.7B-GGUF-Q4_K_XL.json",
             "unsloth/Qwen3-1.7B-GGUF-Q5_K_XL.json",
             "unsloth/Qwen3-1.7B-GGUF-Q6_K_XL.json",
             "unsloth/Qwen3-1.7B-GGUF-Q8_0.json",
-            "Qwen/Qwen3-1.7B-FP8.json",
+            # "Qwen/Qwen3-1.7B-FP8-no_quant_scheme.json",
         ],
 
         "Qwen3-4B": [
-            # "unsloth/Qwen3-4B-GGUF-IQ1_M.json",
             "unsloth/Qwen3-4B-GGUF-Q2_K_XL.json",
             "unsloth/Qwen3-4B-GGUF-Q3_K_XL.json",
             "unsloth/Qwen3-4B-GGUF-Q4_K_XL.json",
             "unsloth/Qwen3-4B-GGUF-Q5_K_XL.json",
             "unsloth/Qwen3-4B-GGUF-Q6_K_XL.json",
             "unsloth/Qwen3-4B-GGUF-Q8_0.json",
-            "Qwen/Qwen3-4B-AWQ.json",
-            "Qwen/Qwen3-4B-FP8.json",
+            # "Qwen/Qwen3-4B-AWQ-no_quant_scheme.json",
+            # "Qwen/Qwen3-4B-FP8-no_quant_scheme.json",
         ],
 
-        "Qwen3-8B": [
-            # "unsloth/Qwen3-8B-GGUF-IQ1_M.json",
-            "unsloth/Qwen3-8B-GGUF-Q2_K_XL.json",
-            "unsloth/Qwen3-8B-GGUF-Q3_K_XL.json",
-            "unsloth/Qwen3-8B-GGUF-Q4_K_XL.json",
-            "unsloth/Qwen3-8B-GGUF-Q5_K_XL.json",
-            "unsloth/Qwen3-8B-GGUF-Q6_K_XL.json",
-            "unsloth/Qwen3-8B-GGUF-Q8_0.json",
-            "Qwen/Qwen3-8B-AWQ.json",
-            "Qwen/Qwen3-8B-FP8.json",
-        ],
+        # "Qwen3-8B": [
+        #     "unsloth/Qwen3-8B-GGUF-Q2_K_XL.json",
+        #     "unsloth/Qwen3-8B-GGUF-Q3_K_XL.json",
+        #     "unsloth/Qwen3-8B-GGUF-Q4_K_XL.json",
+        #     "unsloth/Qwen3-8B-GGUF-Q5_K_XL.json",
+        #     "unsloth/Qwen3-8B-GGUF-Q6_K_XL.json",
+        #     "unsloth/Qwen3-8B-GGUF-Q8_0.json",
+        #     # "Qwen/Qwen3-8B-AWQ-no_quant_scheme.json",
+        #     # "Qwen/Qwen3-8B-FP8-no_quant_scheme.json",
+        # ],
 
         "Qwen3-14B": [
-            # "unsloth/Qwen3-14B-GGUF-IQ1_M.json",
             "unsloth/Qwen3-14B-GGUF-Q2_K_XL.json",
             "unsloth/Qwen3-14B-GGUF-Q3_K_XL.json",
             "unsloth/Qwen3-14B-GGUF-Q4_K_XL.json",
             "unsloth/Qwen3-14B-GGUF-Q5_K_XL.json",
             "unsloth/Qwen3-14B-GGUF-Q6_K_XL.json",
             "unsloth/Qwen3-14B-GGUF-Q8_0.json",
-            "Qwen/Qwen3-14B-AWQ.json",
-            "Qwen/Qwen3-14B-FP8.json",
+            # "Qwen/Qwen3-14B-AWQ-no_quant_scheme.json",
+            # "Qwen/Qwen3-14B-FP8-no_quant_scheme.json",
         ],
 
         "Qwen3-32B": [
-            # "unsloth/Qwen3-32B-GGUF-IQ1_M.json",
             "unsloth/Qwen3-32B-GGUF-Q2_K_XL.json",
             "unsloth/Qwen3-32B-GGUF-Q3_K_XL.json",
             "unsloth/Qwen3-32B-GGUF-Q4_K_XL.json",
             "unsloth/Qwen3-32B-GGUF-Q5_K_XL.json",
             "unsloth/Qwen3-32B-GGUF-Q6_K_XL.json",
             "unsloth/Qwen3-32B-GGUF-Q8_0.json",
-            "Qwen/Qwen3-32B-AWQ.json",
-            "Qwen/Qwen3-32B-FP8.json",
+            # "Qwen/Qwen3-32B-AWQ-no_quant_scheme.json",
+            "Qwen/Qwen3-32B-FP8-no_quant_scheme.json",
         ],
 
     }

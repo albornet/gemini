@@ -108,7 +108,7 @@ def _load_model_vllm_server(
     # Launch the server and wait for it to be ready
     base_url = f"http://{host}:{port}"
     server_process = subprocess.Popen(cmd)
-    print(f"\nStarting vLLM server for '{params["--model"]}' at {base_url}")
+    print(f"\nStarting vLLM server at {base_url}")
     try:
         wait_for_vllm_server_ready(server_process, base_url)
 

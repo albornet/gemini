@@ -14,27 +14,25 @@ fi
 
 # Models and quantizations to test (GGUF)
 MODEL_PATHS=(
-    # "unsloth/Qwen3-0.6B-GGUF"
-    "unsloth/Qwen3-1.7B-GGUF"
-    "unsloth/Qwen3-4B-GGUF"
     "unsloth/Qwen3-8B-GGUF"
+    "unsloth/Qwen3-4B-GGUF"
+    "unsloth/Qwen3-1.7B-GGUF"
+    "unsloth/Qwen3-0.6B-GGUF"
 )
 QUANT_SCHEMES=(
-    "Q2_K_XL"
-    "Q3_K_XL"
-    "Q4_K_XL"
-    "Q5_K_XL"
-    "Q6_K_XL"
+    # "Q8_K_XL"  <--- this scheme makes vLLM crash for some reason!
     "Q8_0"
-    "Q8_K_XL"
+    "Q6_K_XL"
+    "Q5_K_XL"
+    "Q4_K_XL"
+    "Q3_K_XL"
+    "Q2_K_XL"
 )
 
 # # Models and quantizations to test (AWQ/FP8)
 # MODEL_PATHS=(
-#     # Orion-zhen/Qwen3-0.6B-AWQ
-#     Qwen/Qwen3-0.6B-FP8
-#     # Orion-zhen/Qwen3-1.7B-AWQ
-#     Qwen/Qwen3-1.7B-FP8
+#     Qwen/Qwen3-0.6B-FP8  # (no AWQ version available)
+#     Qwen/Qwen3-1.7B-FP8  # (no AWQ version available)
 #     Qwen/Qwen3-4B-AWQ
 #     Qwen/Qwen3-4B-FP8
 #     Qwen/Qwen3-8B-AWQ
@@ -84,11 +82,11 @@ for MODEL_PATH in "${MODEL_PATHS[@]}"; do
         # Check the exit code of the benchmark script
         if [ $? -ne 0 ]; then
             echo "Error: Benchmark failed for $MODEL_PATH ($QUANT_SCHEME). Aborting."
-            exit 1
+            echo ""  # exit 1
+        else
+            echo "Benchmark finished successfully for $MODEL_PATH ($QUANT_SCHEME)."
+            echo ""
         fi
-
-        echo "Benchmark finished for $MODEL_PATH ($QUANT_SCHEME)."
-        echo ""
 
         # Small delay between runs
         sleep 1

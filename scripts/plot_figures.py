@@ -3,6 +3,7 @@ import json
 import pandas as pd
 import math
 import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
 import statsmodels.formula.api as smf
 
 
@@ -10,7 +11,7 @@ INPUT_DIR = "results/vllm-serve-async_guided"
 OUTPUT_DIR = os.path.join(INPUT_DIR, "pooled")
 OUTPUT_NAME = "pooled_results_qwen3_abiram"
 PLOTTED_X_ID = "vram"  # "vram", "nparams", "nbits"
-PLOTTED_Y_ID = "error"  # "error", "distance"
+PLOTTED_Y_ID = "distance"  # "error", "distance"
 CASES = [
     "single model",
     "maj-pooling-3",
@@ -25,7 +26,7 @@ X_CONFIGS = {
 }
 Y_CONFIGS = {
     "error": {"key": "Error Rate", "unit": "%", "lim": [0.0, 1.1], "log": False},
-    "distance": {"key": "Distance", "unit": "mRS unit", "lim": [0.1, 5.0], "log": True},
+    "distance": {"key": "Distance", "unit": "mRS unit", "lim": [0.0, 3.5], "log": False},
 }
 GROUP_COLORS = [
     "tab:blue", "tab:orange", "tab:green", "tab:red", "tab:purple",
@@ -50,7 +51,7 @@ def _extract_metric_value(
     return default_val
 
 
-def generate_error_rate_plot(
+def generate_pooled_metric_plots(
     result_path_group: dict[str, list],
     output_name: str,
     output_dir: str,
@@ -62,7 +63,7 @@ def generate_error_rate_plot(
     if not os.path.exists(output_dir): os.makedirs(output_dir)
     num_cols = 2
     num_rows = math.ceil(len(CASES) / num_cols)
-    fig, axes = plt.subplots(num_rows, num_cols, figsize=(12, 5 * num_rows), squeeze=False)
+    fig, axes = plt.subplots(num_rows, num_cols, figsize=(10, 4 * num_rows), squeeze=False)
     axes_flat = axes.flatten()
     csv_data = []
     for i, case_name in enumerate(CASES):
@@ -76,7 +77,7 @@ def generate_error_rate_plot(
                     with open(result_path, "r") as f:
                         data = json.load(f)
                 except (FileNotFoundError, json.JSONDecodeError) as e:
-                    # print(f"Warning: Could not load or parse JSON file {result_path}: {e}. Skipping.")
+                    print(f"Warning: Could not load or parse JSON file {result_path}: {e}. Skipping.")
                     continue
 
                 extracted_data = {"model": group_label}
@@ -123,6 +124,8 @@ def generate_error_rate_plot(
             axes_flat[i].set_xlim(X_CONFIGS[PLOTTED_X_ID]["lim"])
         if Y_CONFIGS[PLOTTED_Y_ID]["lim"] is not None:
             axes_flat[i].set_ylim(Y_CONFIGS[PLOTTED_Y_ID]["lim"])
+        if PLOTTED_Y_ID == "distance":
+            axes_flat[i].yaxis.set_major_locator(ticker.MultipleLocator(1.0))
         axes_flat[i].tick_params(axis="y", labelsize=10)
         axes_flat[i].tick_params(axis="x", labelsize=10)
         axes_flat[i].grid(True, linestyle="--", alpha=0.6)
@@ -148,8 +151,8 @@ def generate_error_rate_plot(
 
 def fit_error_model_lme(
     df_input: pd.DataFrame,
-    dependent_variable: str="error - single model",
-    fixed_effect_0: str="vram",
+    dependent_variable: str="error - all 5 models",
+    fixed_effect_0: str="nparams",
     fixed_effect_1: str="nbits",
     include_interaction: bool=True,
     random_intercept_group: str="model",
@@ -252,11 +255,12 @@ if __name__ == "__main__":
     }
 
     # Pool results and plot them
-    output_png_path, output_csv_path = generate_error_rate_plot(
+    output_png_path, output_csv_path = generate_pooled_metric_plots(
         result_path_group,
         output_name=OUTPUT_NAME,
         output_dir=OUTPUT_DIR,
     )
 
-    # # Identify statistical patterns using linear mixed-effects models
-    # lme_results = fit_error_model_lme(pd.read_csv(output_csv_path))
+    # Identify statistical patterns using linear mixed-effects models
+    lme_results = fit_error_model_lme(pd.read_csv(output_csv_path))
+    print(lme_results.summary())

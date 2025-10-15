@@ -138,10 +138,9 @@ srun apptainer exec --nv "${SIF_IMAGE}" ${PYTHON_WRAPPER_CALL} \\
     --key-name "${KEY_NAME}" \\
     --hostname "${HOSTNAME}" \\
     --username "${USERNAME}" \\
-    --model-config-path "${CONFIG_SNAPSHOT_DIR}/model_config.yaml" \\
     --data-config-path "${CONFIG_SNAPSHOT_DIR}/data_config.yaml" \\
-    --prompt-config-path "${CONFIG_SNAPSHOT_DIR}/prompt_config.yaml" \\
-    --output-config-path "${CONFIG_SNAPSHOT_DIR}/output_config.yaml"
+    --model-config-path "${CONFIG_SNAPSHOT_DIR}/model_config.yaml" \\
+    --prompt-config-path "${CONFIG_SNAPSHOT_DIR}/prompt_config.yaml"
 
 echo "Job finished with exit code \$?."
 echo "Cleaning up temporary config directory: ${CONFIG_SNAPSHOT_DIR}"
@@ -161,10 +160,9 @@ echo "Job has been submitted to Slurm."
 #    --key-name "GEMINI" \
 #    --hostname "10.195.108.106" \
 #    --username "borneta" \
-#    --model-config-path ./configs/model_config.yaml \
 #    --data-config-path ./configs/data_config.yaml \
-#    --prompt-config-path ./configs/prompt_config.yaml \
-#    --output-config-path ./configs/output_config.yaml
+#    --model-config-path ./configs/model_config.yaml \
+#    --prompt-config-path ./configs/prompt_config.yaml
 
 # Desktop run command
 # python -m scripts.run_benchmark \
@@ -174,7 +172,6 @@ echo "Job has been submitted to Slurm."
 #     --key-name "GEMINI" \
 #     --hostname "login1.baobab.hpc.unige.ch" \
 #     --username "borneta" \
-#     --model-config-path "./configs/model_config.yaml" \
 #     --data-config-path "./configs/data_config.yaml" \
-#     --prompt-config-path "./configs/prompt_config.yaml" \
-#     --output-config-path "./configs/output_config.yaml"
+#     --model-config-path "./configs/model_config.yaml" \
+#     --prompt-config-path "./configs/prompt_config.yaml"

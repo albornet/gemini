@@ -20,7 +20,6 @@ MODEL_PATHS=(
     "unsloth/Qwen3-0.6B-GGUF"
 )
 QUANT_SCHEMES=(
-    # "Q8_K_XL"  <--- this scheme makes vLLM crash for some reason!
     "Q8_0"
     "Q6_K_XL"
     "Q5_K_XL"
@@ -74,10 +73,9 @@ for MODEL_PATH in "${MODEL_PATHS[@]}"; do
             --key-name "GEMINI" \
             --hostname "login1.baobab.hpc.unige.ch" \
             --username "borneta" \
-            --model-config-path "./configs/model_config.yaml" \
             --data-config-path "./configs/data_config.yaml" \
-            --prompt-config-path "./configs/prompt_config.yaml" \
-            --output-config-path "./configs/output_config.yaml"
+            --model-config-path "./configs/model_config.yaml" \
+            --prompt-config-path "./configs/prompt_config.yaml"
 
         # Check the exit code of the benchmark script
         if [ $? -ne 0 ]; then

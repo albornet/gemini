@@ -26,7 +26,7 @@ X_CONFIGS = {
 }
 Y_CONFIGS = {
     "error": {"key": "Error Rate", "unit": "%", "lim": [0.0, 1.1], "log": False},
-    "distance": {"key": "Distance", "unit": "mRS unit", "lim": [0.0, 3.5], "log": False},
+    "distance": {"key": "Distance", "unit": "mRS unit", "lim": [0.05, 3.5], "log": True},
 }
 GROUP_COLORS = [
     "tab:blue", "tab:orange", "tab:green", "tab:red", "tab:purple",
@@ -213,16 +213,16 @@ if __name__ == "__main__":
             # "Qwen/Qwen3-4B-FP8-no_quant_scheme.json",
         ],
 
-        # "Qwen3-8B": [
-        #     "unsloth/Qwen3-8B-GGUF-Q2_K_XL.json",
-        #     "unsloth/Qwen3-8B-GGUF-Q3_K_XL.json",
-        #     "unsloth/Qwen3-8B-GGUF-Q4_K_XL.json",
-        #     "unsloth/Qwen3-8B-GGUF-Q5_K_XL.json",
-        #     "unsloth/Qwen3-8B-GGUF-Q6_K_XL.json",
-        #     "unsloth/Qwen3-8B-GGUF-Q8_0.json",
-        #     # "Qwen/Qwen3-8B-AWQ-no_quant_scheme.json",
-        #     # "Qwen/Qwen3-8B-FP8-no_quant_scheme.json",
-        # ],
+        "Qwen3-8B": [
+            "unsloth/Qwen3-8B-GGUF-Q2_K_XL.json",
+            "unsloth/Qwen3-8B-GGUF-Q3_K_XL.json",
+            "unsloth/Qwen3-8B-GGUF-Q4_K_XL.json",
+            "unsloth/Qwen3-8B-GGUF-Q5_K_XL.json",
+            "unsloth/Qwen3-8B-GGUF-Q6_K_XL.json",
+            "unsloth/Qwen3-8B-GGUF-Q8_0.json",
+            # "Qwen/Qwen3-8B-AWQ-no_quant_scheme.json",
+            # "Qwen/Qwen3-8B-FP8-no_quant_scheme.json",
+        ],
 
         "Qwen3-14B": [
             "unsloth/Qwen3-14B-GGUF-Q2_K_XL.json",

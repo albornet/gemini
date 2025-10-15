@@ -5,17 +5,15 @@ from transformers import AutoModelForCausalLM
 from datasets import Dataset
 # from llama_cpp import Llama
 from vllm import LLM, SamplingParams, RequestOutput
-from openai import OpenAI, AsyncOpenAI, InternalServerError, APIConnectionError
+from openai import OpenAI, AsyncOpenAI, InternalServerError
 from tqdm import tqdm
 from tqdm.asyncio import tqdm as anext
-from typing import Any
+from typing import Any, Type
 from functools import partial
-from vllm.sampling_params import GuidedDecodingParams
+from pydantic import BaseModel
+from vllm.sampling_params import StructuredOutputsParams
 from src.data.prompting import build_prompt
-from src.data.output_guiding import (
-    create_pydantic_model_from_schema_dict,
-    extract_structured_output,
-)
+from src.data.output_guiding import extract_structured_output, SCHEMA_REGISTRY
 
 
 def _infer_vllm(
@@ -25,19 +23,25 @@ def _infer_vllm(
     max_new_tokens: int,
     temperature: float = 1.0,
     top_p: float = 1.0,
-    json_schema: dict[str, Any] | None = None,
+    output_schema_model: Type[BaseModel] | None = None,
     *args, **kwargs,
 ) -> list[list[str]]:
     """
     Runs inference with vLLM directly (faster than querying vLLM-serve)
     """
+    # Define if structured output is used or not during inference
+    structured_params = None
+    if output_schema_model is not None:
+        json_schema = output_schema_model.model_json_schema()
+        structured_params = StructuredOutputsParams(json=json_schema)
+
     # Build sampling parameters
     sampling_params = SamplingParams(
         n=n_inference_repeats,  # several completions per prompt
         max_tokens=max_new_tokens,
         temperature=temperature,
         top_p=top_p,
-        guided_decoding=GuidedDecodingParams(json=json_schema),
+        structured_outputs=structured_params,
     )
 
     # Build prompts using model tokenizer by mapping dataset messages
@@ -75,6 +79,34 @@ def _extract_outputs_vllm(choices: list) -> list[str]:
     return outputs
 
 
+def _setup_inference_output(
+    output_schema_model: Type[BaseModel] | None,
+    enable_thinking: bool = True,
+) -> tuple[dict | None, dict]:
+    """
+    Define how output is influenced during inference
+    """
+    # Structured output guiding
+    response_format = None
+    if output_schema_model is not None:
+        response_format = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": output_schema_model.__name__,
+                "schema": output_schema_model.model_json_schema(),
+            },
+        }
+
+    # Thinking mode or not (useful for Qwen3, might be broken in the future)
+    extra_body={
+        "chat_template_kwargs": {
+            "enable_thinking": enable_thinking,
+        },
+    }
+    
+    return response_format, extra_body
+
+
 def _infer_vllm_serve(
     model: OpenAI,
     dataset: Dataset,
@@ -82,19 +114,21 @@ def _infer_vllm_serve(
     max_new_tokens: int,
     temperature: float = 1.0,
     top_p: float = 1.0,
-    output_guide: dict[str, Any] | None = None,
+    output_schema_model: Type[BaseModel] | None = None,
     enable_thinking: bool = True,
     *args, **kwargs,
 ) -> list[list[str]]:
     """
     Runs inference by querying the vLLM server using the chat completion API
     """
+    # Initialization
     client = model
     model_name = client.models.list().data[0].id
+    response_format, extra_body = _setup_inference_output(output_schema_model, enable_thinking)
 
     @retry(
         wait=wait_exponential(multiplier=1, min=1, max=16),
-        stop=stop_after_attempt(5),
+        stop=stop_after_attempt(max_attempt_number=5),
         retry=retry_if_exception_type((InternalServerError, ConnectionError)),
         reraise=True,
     )
@@ -107,10 +141,8 @@ def _infer_vllm_serve(
             n=n_inference_repeats,
             temperature=temperature,
             top_p=top_p,
-            extra_body={
-                "chat_template_kwargs": {"enable_thinking": enable_thinking},
-                "guided_json": output_guide,
-            },
+            response_format=response_format,
+            extra_body=extra_body,
         )
         return _extract_outputs_vllm(chat_completion.choices)
 
@@ -118,7 +150,7 @@ def _infer_vllm_serve(
     all_outputs = []
     for messages in tqdm(dataset["messages"], desc="Querying vLLM server"):
         all_outputs.append(generate_vllm_outputs(messages))
-        time.sleep(1)  # avoid overwhelming the server
+        time.sleep(1)  # avoid overwhelming the server (useful?)
 
     return all_outputs
 
@@ -130,7 +162,7 @@ async def _infer_vllm_serve_async(
     max_new_tokens: int,
     temperature: float = 1.0,
     top_p: float = 1.0,
-    output_guide: dict[str, Any] | None = None,
+    output_schema_model: Type[BaseModel] | None = None,
     enable_thinking: bool = True,
     max_concurrent_requests: int = 64,
     *args, **kwargs,
@@ -138,9 +170,11 @@ async def _infer_vllm_serve_async(
     """
     Runs inference by querying the vLLM server asynchronously
     """
+    # Initialization
     client = model
     model_name = (await client.models.list()).data[0].id
     semaphore = asyncio.Semaphore(max_concurrent_requests)  # avoid overload
+    response_format, extra_body = _setup_inference_output(output_schema_model, enable_thinking)
 
     @retry(
         wait=wait_exponential(multiplier=1, min=1, max=16),
@@ -158,10 +192,8 @@ async def _infer_vllm_serve_async(
                 n=n_inference_repeats,
                 temperature=temperature,
                 top_p=top_p,
-                extra_body={
-                    "chat_template_kwargs": {"enable_thinking": enable_thinking},
-                    "guided_json": output_guide,
-                },
+                response_format=response_format,
+                extra_body=extra_body,
             )
             return _extract_outputs_vllm(chat_completion.choices)
 
@@ -179,16 +211,15 @@ def _infer_llama_cpp(
     max_new_tokens: int,
     temperature: float = 1.0,
     top_p: float = 1.0,
-    json_schema: dict[str, Any] | None = None,
+    output_schema_model: Type[BaseModel] | None = None,
     *args, **kwargs,
 ) -> list[list[str]]:
     """
     Runs inference with llama-cpp-python
     """
     # Build response format
-    response_format = None
-    if json_schema is not None:
-        response_format = {"type": "json_object", "schema": json_schema}
+    # TODO: CHECK IF THAT WORKS (NEVER TESTED SINCE I AM NOT USING LLAMA-CPP ANYMORE)
+    _, response_format = _setup_inference_output(output_schema_model)
 
     # Run llama-cpp model on the dataset
     all_outputs = []
@@ -219,9 +250,7 @@ def process_samples(
     dataset: Dataset,
     inference_backend: str,
     n_inference_repeats: int,
-    use_output_guide: bool = False,
     enable_thinking: bool = True,
-    output_schema_dict: dict[str, Any] | None = None,
     output_schema_name: str | None = None,
     max_new_tokens: int = 512,
     temperature: float = 1.0,
@@ -231,14 +260,15 @@ def process_samples(
     """
     Run inference on dataset samples using vLLM, llama-cpp, or HuggingFace backends.
     """
-    # Build output guide if requested (i.e., output schema influences LLM's inference)
-    if not use_output_guide:
-        output_guide = None
-    else:
-        output_guide = create_pydantic_model_from_schema_dict(
-            schema_dict=output_schema_dict,
-            model_name=output_schema_name,
-        ).model_json_schema()
+    # Retrieve output schema if requested (to guide LLM inference)
+    output_schema_model = None
+    if output_schema_name is not None:
+        output_schema_model = SCHEMA_REGISTRY.get(output_schema_name)
+        if output_schema_model is None:
+            raise ValueError(
+                f"Schema '{output_schema_name}' not found in registry. "
+                f"Available schemas are: {list(SCHEMA_REGISTRY.keys())}"
+            )
 
     # Define arguments for model inference 
     infer_args = {
@@ -248,7 +278,7 @@ def process_samples(
         "max_new_tokens": max_new_tokens,
         "temperature": temperature,
         "top_p": top_p,
-        "output_guide": output_guide,
+        "output_schema_model": output_schema_model,
         "enable_thinking": enable_thinking,
         **kwargs,
     }
@@ -261,7 +291,7 @@ def process_samples(
         case "vllm-serve-async": output_texts = asyncio.run(_infer_vllm_serve_async(**infer_args))
         case _: raise ValueError(f"Unknown inference backend: {inference_backend}")
 
-    # Extract Pydantic style output schema from the configuration
+    # Extract data using the model and required inference backend
     transposed_output_texts = list(zip(*output_texts))
     for i, model_outputs in enumerate(transposed_output_texts):
 
@@ -272,8 +302,7 @@ def process_samples(
         # Define function to add structured output, keeping the model index in the output column
         mapping_fn = partial(
             _map_and_structure_output,
-            output_schema_dict=output_schema_dict,
-            output_schema_name=output_schema_name,
+            output_schema_model=output_schema_model,
             col_to_structure=column_name,
             inference_idx=i,
         )
@@ -285,8 +314,7 @@ def process_samples(
 
 def _map_and_structure_output(
     sample: dict[str, Any],
-    output_schema_dict: dict[str, Any],
-    output_schema_name: str,
+    output_schema_model: Type[BaseModel],
     col_to_structure: str,
     inference_idx: int,
 ) -> dict[str, Any]:
@@ -294,12 +322,6 @@ def _map_and_structure_output(
     Extracts structured data from a single sample's text output and add the index
     of the inference that generated that output
     """
-    # Recreate the model from the serializable inputs
-    output_schema_model = create_pydantic_model_from_schema_dict(
-        schema_dict=output_schema_dict,
-        model_name=output_schema_name,
-    )
-
     structured_dict = extract_structured_output(
         sample=sample,
         output_schema_model=output_schema_model,

@@ -1,92 +1,15 @@
 import re
 import json
 import json5
-from enum import Enum
-from typing import Type, Any, List
-from pydantic import BaseModel, ValidationError, Field, create_model
+from typing import Any, Type
+from pydantic import BaseModel, ValidationError
 from pydantic_core import PydanticUndefinedType
 
-# Mappings from json schema keywords to pydantic field arguments
-TYPE_MAPPING = {"string": str, "integer": int, "number": float, "boolean": bool}
-CONSTRAINT_MAPPING = {
-
-    # Field helpers
-    "default": "default",
-    "description": "description",
-    "title": "title",
-
-    # String
-    "maxLength": "max_length",
-    "minLength": "min_length",
-    "pattern": "pattern",
-
-    # Numeric
-    "minimum": "ge",
-    "maximum": "le",
-    "exclusiveMinimum": "gt",
-    "exclusiveMaximum": "lt",
-    "multipleOf": "multiple_of",
-
-    # Array
-    "minItems": "min_length",
-    "maxItems": "max_length",
-
+from src.data.schemas import PatientInfoSchema  #, ...
+SCHEMA_REGISTRY = {
+    "PatientInfoSchema": PatientInfoSchema,
+    # ...
 }
-
-
-def parse_schema_field(
-    field_name: str,
-    properties: dict[str, Any],
-) -> tuple[Type, dict[str, Any]]:
-    """
-    Parse a schema property to a Pydantic type and Field arguments
-    """
-    # Determine the base type
-    type_str = properties.get("type")
-    if not type_str:
-        raise ValueError(f"Field '{field_name}' must have a 'type'.")
-
-    # Handle enum, primitive types, and arrays
-    pydantic_type: Type
-    if "enum" in properties:
-        enum_name = f"{field_name.capitalize()}Enum"
-        pydantic_type = Enum(enum_name, {str(v): v for v in properties["enum"]})
-    elif type_str in TYPE_MAPPING:
-        pydantic_type = TYPE_MAPPING[type_str]
-    elif type_str == "array":
-        items_schema = properties.get("items")
-        if not isinstance(items_schema, dict) or "type" not in items_schema:
-            raise ValueError(f"Array '{field_name}' needs 'items' with a 'type'.")
-        item_pydantic_type, _ = parse_schema_field(f"{field_name}_items", items_schema)
-        pydantic_type = List[item_pydantic_type]
-    else:
-        raise ValueError(f"Unsupported type '{type_str}' for field '{field_name}'.")
-
-    # Collect field constraints and metadata
-    field_args = {}
-    for schema_key, pydantic_key in CONSTRAINT_MAPPING.items():
-        if schema_key in properties:
-            field_args[pydantic_key] = properties[schema_key]
-
-    return pydantic_type, field_args
-
-
-def create_pydantic_model_from_schema_dict(
-    schema_dict: dict[str, Any],
-    model_name: str,
-) -> Type[BaseModel]:
-    """
-    Create a Pydantic model from a JSON schema-like dictionary
-    """
-    pydantic_fields = {}
-    for field_name, field_properties in schema_dict.items():
-        if not isinstance(field_properties, dict):
-            raise ValueError(f"Properties for '{field_name}' must be a dict.")
-        
-        field_type, field_args = parse_schema_field(field_name, field_properties)
-        pydantic_fields[field_name] = (field_type, Field(**field_args))
-
-    return create_model(model_name, **pydantic_fields, __base__=BaseModel)
 
 
 def extract_structured_output(

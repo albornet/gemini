@@ -26,7 +26,6 @@ context_data:
     Si tu inclus un raisonnement, mets-le uniquement entre les balises <think> et </think> et limite-le à 5 phrases maximum.
     La réponse finale doit être un objet JSON strict, sans texte additionnel, conforme au format suivant :
     {
-      "description": "<courte description des éléments permettant de déterminer le score mRS du patient>",
       "mRS": <nombre entre 0 et 6>
     }
 

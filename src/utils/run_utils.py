@@ -28,12 +28,6 @@ def add_model_arguments(parser: ArgumentParser) -> None:
         help="Path to the prompt configuration file"
     )
 
-    model_group.add_argument(
-        "-oc", "--output-config-path",
-        default="configs/output_config.yaml",
-        help="Path to the output schema configuration file"
-    )
-
 
 def add_data_arguments(parser: ArgumentParser) -> None:
     """
@@ -127,10 +121,9 @@ def load_config_files(script_args) -> dict:
     model_config = _load_config_from_yaml(script_args.model_config_path)
     data_config = _load_config_from_yaml(script_args.data_config_path)
     prompt_config = _load_config_from_yaml(script_args.prompt_config_path)
-    output_config = _load_config_from_yaml(script_args.output_config_path)
 
     # Combine all configurations into a single dictionary
-    run_config = {**model_config, **data_config, **prompt_config, **output_config}
+    run_config = {**model_config, **data_config, **prompt_config}
 
     return run_config
 

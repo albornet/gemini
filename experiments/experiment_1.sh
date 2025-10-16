@@ -2,7 +2,7 @@
 
 # Slurm configuration
 PARTITION="shared-gpu"
-TIME_TO_RUN="0-00:30:00"
+TIME_TO_RUN="0-02:00:00"
 NUM_GPUS=1
 MAX_CONCURRENT_INFS="64"  # todo: check if very large models fail with 256 and would require 64
 
@@ -34,22 +34,18 @@ INFERENCE_BACKEND="vllm-serve-async"
 
 # Models to test
 MODEL_PATHS=(
-    # "unsloth/Qwen3-0.6B-GGUF"
-    # "unsloth/Qwen3-1.7B-GGUF"
-    "unsloth/Qwen3-4B-GGUF"
-    # "unsloth/Qwen3-8B-GGUF"
+    "unsloth/Qwen3-32B-GGUF"
     # "unsloth/Qwen3-14B-GGUF"
-    # "unsloth/Qwen3-32B-GGUF"
 )
 
 # Quantizations to test
 QUANT_SCHEMES=(
-    # "Q2_K_XL"
-    # "Q3_K_XL"
-    "Q4_K_XL"
-    # "Q5_K_XL"
+    "Q8_0"
     # "Q6_K_XL"
-    # "Q8_0" 
+    # "Q5_K_XL"
+    # "Q4_K_XL"
+    "Q3_K_XL"
+    # "Q2_K_XL"
 )
 
 # Node requirements mapping
@@ -75,10 +71,10 @@ for MODEL_PATH in "${MODEL_PATHS[@]}"; do
         if [[ -v "NODE_LIST_REQUIREMENTS[$KEY]" ]]; then
             NODE_LIST_TO_USE=${NODE_LIST_REQUIREMENTS[$KEY]}
             if [[ "$NODE_LIST_TO_USE" == "$LARGER_MEM_NODE_LIST" ]]; then
-                GPU_MEM_UTIL="0.90"
+                GPU_MEM_UTIL="0.80"
                 echo "   Found custom config: targeting larger-memory nodes: $NODE_LIST_TO_USE"
             elif [[ "$NODE_LIST_TO_USE" == "$LARGE_MEM_NODE_LIST" ]]; then
-                GPU_MEM_UTIL="0.90"
+                GPU_MEM_UTIL="0.80"
                 echo "   Found custom config: targeting large-memory nodes: $NODE_LIST_TO_USE"
             fi
 

@@ -1,6 +1,7 @@
 import os
 import gc
 import argparse
+import subprocess
 from typing import Any
 from functools import partial
 
@@ -94,19 +95,25 @@ def record_one_benchmark(
         print(f"An error occurred during benchmarking: {e}")
         raise 
 
-    # Cleanup Logic
+    # Cleanup logic
     finally:
         print("Cleaning up resources...")
 
         # Terminate server process if it was started
-        if server_process is not None:
+        if server_process is not None and server_process.poll() is None:
             print("Terminating vLLM server...")
+            # Send a polite SIGTERM signal
             server_process.terminate()
-            server_process.wait(timeout=10) # Wait for process to exit
-            if server_process.poll() is None:
-                print("Server did not terminate gracefully, killing.")
+            try:
+                # Wait for a graceful shutdown
+                server_process.wait(timeout=30)
+                print("Server terminated gracefully.")
+            except subprocess.TimeoutExpired:
+                # Force killing the process with SIGKILL
+                print("Server did not terminate within 30 seconds, killing it.")
                 server_process.kill()
-            print("Server terminated.")
+                server_process.wait()  # wait for the OS to clean up the killed process
+                print("Server killed.")
 
         # Clean GPU memory and distributed processes if any
         if "model" in locals() and cfg.get('inference_backend') != 'vllm-serve':

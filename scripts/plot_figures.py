@@ -26,7 +26,7 @@ X_CONFIGS = {
 }
 Y_CONFIGS = {
     "error": {"key": "Error Rate", "unit": "%", "lim": [0.0, 1.1], "log": False},
-    "distance": {"key": "Distance", "unit": "mRS unit", "lim": [0.05, 3.5], "log": True},
+    "distance": {"key": "Distance", "unit": "mRS unit", "lim": [0.1, 3.5], "log": True},
 }
 GROUP_COLORS = [
     "tab:blue", "tab:orange", "tab:green", "tab:red", "tab:purple",
@@ -125,7 +125,8 @@ def generate_pooled_metric_plots(
         if Y_CONFIGS[PLOTTED_Y_ID]["lim"] is not None:
             axes_flat[i].set_ylim(Y_CONFIGS[PLOTTED_Y_ID]["lim"])
         if PLOTTED_Y_ID == "distance":
-            axes_flat[i].yaxis.set_major_locator(ticker.MultipleLocator(1.0))
+            axes_flat[i].yaxis.set_major_locator(ticker.LogLocator(base=10.0, numticks=10))
+            axes_flat[i].yaxis.set_minor_locator(ticker.LogLocator(base=10.0, subs="auto", numticks=10))
         axes_flat[i].tick_params(axis="y", labelsize=10)
         axes_flat[i].tick_params(axis="x", labelsize=10)
         axes_flat[i].grid(True, linestyle="--", alpha=0.6)

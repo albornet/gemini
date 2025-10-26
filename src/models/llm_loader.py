@@ -54,7 +54,7 @@ def _load_model_vllm_server(
     quant_method: str | None = None,
     quant_scheme: str | None = None,
     reasoning_parser: str | None = None,
-    reasoning_config: str | None = None,
+    logit_processors: list[str] | None = None,
     max_context_length: int | None = None,
     max_concurrent_inferences: int | None = None,
     num_gpus_to_use: int = 1,
@@ -73,8 +73,9 @@ def _load_model_vllm_server(
     and the server process handle.
     """
     # Special case for gguf models, where model file is pre-downloaded locally
+    tokenizer_name = get_tokenizer_name(model_path)
     if quant_method == "gguf":
-        model_path = download_gguf_by_quant(model_path, quant_scheme)  # get_tokenizer_name(model_path)?
+        model_path = download_gguf_by_quant(model_path, quant_scheme)
 
     # Build the server command declaratively
     cmd = ["python", "-m", "vllm.entrypoints.openai.api_server"]
@@ -82,28 +83,37 @@ def _load_model_vllm_server(
     params = {
         # Server configuration
         "--host": host,
-        "--port": str(port),
+        "--port": port,
         "--model": model_path,
-        "--tensor-parallel-size": str(num_gpus_to_use),
-        "--reasoning-parser": str(reasoning_parser) if reasoning_parser else None,
+        "--tokenizer": tokenizer_name,
+        "--tensor-parallel-size": num_gpus_to_use,
+        "--reasoning-parser": reasoning_parser,
+        "--logits-processors": logit_processors,
 
         # Memory and batching
-        "--gpu-memory-utilization": str(gpu_memory_utilization),
+        "--gpu-memory-utilization": gpu_memory_utilization,
+        "--max-num-seqs": max_concurrent_inferences,
+        "--max-model-len": max_context_length,
         # "--swap-space": str(get_swap_space_gb(max=max_swap_space_gb)),
         # "--max-num-batched-tokens": str(max_batched_tokens),
-        "--max-num-seqs": str(max_concurrent_inferences) if max_concurrent_inferences else None,
-        "--max-model-len": str(max_context_length) if max_context_length else None,
 
         # Performance
         "--dtype": "auto",  # should be bfloat16 if possible and float16 if not
-        "--quantization": quant_method if quant_method else None,
+        "--quantization": quant_method,
         "--enforce-eager": None,
     }
 
     # Convert parameters to command-line arguments
     for key, value in params.items():
-        if value is not None:
-            cmd.extend([key, value])
+        if value is None or value is False:
+            continue
+        cmd.append(key)
+        if isinstance(value, bool):
+            continue  # for True booleans, only key, no value
+        if isinstance(value, (list, tuple)):
+            cmd.extend([str(v) for v in value])
+        else:
+            cmd.append(str(value))
 
     # Launch the server and wait for it to be ready
     base_url = f"http://{host}:{port}"
@@ -158,7 +168,7 @@ def load_model(
     inference_backend: str,
     quant_scheme: str|None = None,
     reasoning_parser: str|None = None,
-    reasoning_config: str|None = None,
+    logit_processors: list[str]|None = None,
     max_context_length: int|None = None,
     max_concurrent_inferences: int|None = None,
     use_flash_attention: bool = False,
@@ -186,7 +196,7 @@ def load_model(
         "quant_scheme": quant_scheme,
         "quant_method": quant_method,
         "reasoning_parser": reasoning_parser,
-        "reasoning_config": reasoning_config,
+        "logit_processors": logit_processors,
         "max_concurrent_inferences": max_concurrent_inferences,
         "max_context_length": max_context_length,
         "num_gpus_to_use": num_gpus_to_use,
@@ -209,6 +219,7 @@ def load_model(
 def get_tokenizer_name(
     model_id: str,
     chat_template_required: bool=True,
+    default_tokenizer_name: str="Qwen/Qwen3-8B",
 ) -> str:
     """
     Identify base model from which any model was quantized, in order to load
@@ -219,14 +230,14 @@ def get_tokenizer_name(
     model_info = api.model_info(model_id)
     card_data = model_info.card_data or {}
     tokenizer_name = card_data.get("base_model")
-    
+
     # Alternatively, inspect tags or siblings
     if not tokenizer_name:
         for tag in model_info.tags:
             if "base_model:" in tag:
                 tokenizer_name = tag.split(":")[1]
                 break
-    
+
     # Check for chat template, may fall back on Llama-3.2-3B-Instruct (most common)
     if chat_template_required and tokenizer_name:
         try:
@@ -236,9 +247,9 @@ def get_tokenizer_name(
         except Exception as e:
             warn(
                 f"The tokenizer '{tokenizer_name}' does not support chat templating "
-                f"(reason: {e}). Falling back to 'meta-llama/Llama-3.2-3B-Instruct'."
+                f"(reason: {e}). Falling back to '{default_tokenizer_name}'."
             )
-            tokenizer_name = "meta-llama/Llama-3.2-3B-Instruct"
+            return default_tokenizer_name
 
     return tokenizer_name
 

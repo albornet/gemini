@@ -1,3 +1,4 @@
+import json
 import time
 import asyncio
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
@@ -24,6 +25,8 @@ def _infer_vllm(
     temperature: float = 1.0,
     top_p: float = 1.0,
     output_schema_model: Type[BaseModel] | None = None,
+    enable_thinking: bool = True,
+    max_thinking_tokens: int | None = None,
     *args, **kwargs,
 ) -> list[list[str]]:
     """
@@ -35,6 +38,11 @@ def _infer_vllm(
         json_schema = output_schema_model.model_json_schema()
         structured_params = StructuredOutputsParams(json=json_schema)
 
+    # Define thinking budget if required
+    extra_args = {}
+    if max_thinking_tokens is not None:
+        extra_args["max_thinking_tokens"] = max_thinking_tokens
+
     # Build sampling parameters
     sampling_params = SamplingParams(
         n=n_inference_repeats,  # several completions per prompt
@@ -42,6 +50,7 @@ def _infer_vllm(
         temperature=temperature,
         top_p=top_p,
         structured_outputs=structured_params,
+        extra_args=extra_args if extra_args else None,
     )
 
     # Build prompts using model tokenizer by mapping dataset messages
@@ -49,7 +58,7 @@ def _infer_vllm(
         build_prompt,
         tokenizer=model.get_tokenizer(),
         add_generation_prompt=True,
-        enable_thinking=False,
+        enable_thinking=enable_thinking,
     )
     dataset = dataset.map(tokenizer_fn, desc="Building prompts for vLLM")
 
@@ -71,39 +80,49 @@ def _extract_outputs_vllm(choices: list) -> list[str]:
     """
     outputs = []
     for choice in choices:
-        content = choice.message.content
-        if content is None:
-            content = getattr(choice.message, "reasoning_content", None)
+        content = getattr(choice.message, "content", None)
+        reasoning_content = getattr(choice.message, "reasoning_content", None)
+        if content is None: content = reasoning_content
         outputs.append((content or "").strip())
-        
+
     return outputs
 
 
 def _setup_inference_output(
     output_schema_model: Type[BaseModel] | None,
     enable_thinking: bool = True,
+    max_thinking_tokens: int | None = None,
 ) -> tuple[dict | None, dict]:
     """
     Define how output is influenced during inference
     """
     # Structured output guiding
+    # THIS WAS REMOVED FOR A LOGIT PROCESSOR!
     response_format = None
-    if output_schema_model is not None:
-        response_format = {
-            "type": "json_schema",
-            "json_schema": {
-                "name": output_schema_model.__name__,
-                "schema": output_schema_model.model_json_schema(),
-            },
-        }
+    # if output_schema_model is not None:
+    #     response_format = {
+    #         "type": "json_schema",
+    #         "json_schema": {
+    #             "name": output_schema_model.__name__,
+    #             "schema": output_schema_model.model_json_schema(),
+    #         },
+    #     }
 
-    # Thinking mode or not (useful for Qwen3, might be broken in the future)
-    extra_body={
-        "chat_template_kwargs": {
-            "enable_thinking": enable_thinking,
-        },
-    }
-    
+    # Arguments for logit processors
+    extra_body = {}
+    if enable_thinking == False:  # only for false! if True: should stay undefined
+        extra_body = {"chat_template_kwargs": {"enable_thinking": enable_thinking}}
+    vllm_xargs = {}
+    if max_thinking_tokens is not None:
+        vllm_xargs["max_thinking_tokens"] = max_thinking_tokens
+    if output_schema_model is not None:
+        schema_dict = output_schema_model.model_json_schema()
+        schema_str = json.dumps(schema_dict)
+        safe_schema_str = schema_str.replace("'", "\\u0027")
+        vllm_xargs["json_schema"] = safe_schema_str
+    if vllm_xargs:
+        extra_body["vllm_xargs"] = vllm_xargs
+
     return response_format, extra_body
 
 
@@ -116,6 +135,7 @@ def _infer_vllm_serve(
     top_p: float = 1.0,
     output_schema_model: Type[BaseModel] | None = None,
     enable_thinking: bool = True,
+    max_thinking_tokens: int | None = None,
     *args, **kwargs,
 ) -> list[list[str]]:
     """
@@ -124,7 +144,7 @@ def _infer_vllm_serve(
     # Initialization
     client = model
     model_name = client.models.list().data[0].id
-    response_format, extra_body = _setup_inference_output(output_schema_model, enable_thinking)
+    response_format, extra_body = _setup_inference_output(output_schema_model, enable_thinking, max_thinking_tokens)
 
     @retry(
         wait=wait_exponential(multiplier=1, min=1, max=16),
@@ -164,6 +184,7 @@ async def _infer_vllm_serve_async(
     top_p: float = 1.0,
     output_schema_model: Type[BaseModel] | None = None,
     enable_thinking: bool = True,
+    max_thinking_tokens: int | None = None,
     max_concurrent_requests: int = 64,
     *args, **kwargs,
 ) -> list[list[str]]:
@@ -173,8 +194,8 @@ async def _infer_vllm_serve_async(
     # Initialization
     client = model
     model_name = (await client.models.list()).data[0].id
-    semaphore = asyncio.Semaphore(max_concurrent_requests)  # avoid overload
-    response_format, extra_body = _setup_inference_output(output_schema_model, enable_thinking)
+    semaphore = asyncio.Semaphore(max_concurrent_requests)  # to avoid overload
+    response_format, extra_body = _setup_inference_output(output_schema_model, enable_thinking, max_thinking_tokens)
 
     @retry(
         wait=wait_exponential(multiplier=1, min=1, max=16),
@@ -251,6 +272,7 @@ def process_samples(
     inference_backend: str,
     n_inference_repeats: int,
     enable_thinking: bool = True,
+    max_thinking_tokens: int | None = None,
     output_schema_name: str | None = None,
     max_new_tokens: int = 512,
     temperature: float = 1.0,
@@ -280,6 +302,7 @@ def process_samples(
         "top_p": top_p,
         "output_schema_model": output_schema_model,
         "enable_thinking": enable_thinking,
+        "max_thinking_tokens": max_thinking_tokens,
         **kwargs,
     }
 

@@ -1,11 +1,12 @@
 # Model configuration
-model_path: unsloth/Qwen3-8B-GGUF
-quant_scheme: Q8_0
+model_path: unsloth/Qwen3-4B-GGUF
+quant_scheme: Q5_K_XL
 enable_thinking: true  # for, e.g., "Qwen-4B", but not "Qwen-4B-Instruct" (never thinks) or "Qwen-4B-Thinking" (always thinks)
 reasoning_parser: qwen3  # deepseek_r1, qwen3, ... /!\ use deepseek_r1 for explicitely thinking models, qwen3 otherwise
-reasoning_config:                                                  # NOT USED FOR NOW
-  think_start_str: "<think>"                                       # NOT USED FOR NOW
-  think_end_str: " Now let's formulate the final answer.</think>"  # NOT USED FOR NOW
+logit_processors:  # null for not using any logit processor
+  - src.models.logit_processors:ThinkingBudgetProcessor
+  - src.models.logit_processors:JSONParsingProcessor
+max_thinking_tokens: 768  # maximum number of tokens in between <think> and </think>
 output_schema_name: PatientInfoSchema  # null for not using
 
 # Backend configuration
@@ -14,7 +15,7 @@ max_concurrent_requests: 64  # client-side ("semaphore", only used for vllm-serv
 max_concurrent_infs: 64
 
 # Inference configuration
-n_inference_repeats: 5  # number of times each inference is repeated for benchmark
+n_inference_repeats: 10  # number of times each inference is repeated for benchmark
 use_output_guide: true
 max_context_length: 10000  # note: maximum number of tokens in our documents is approximately 8200, and prompt size is about 1000 tokens
 max_new_tokens: 1024  # 1024 - note: this corresponds to the maximum generated tokens
@@ -24,6 +25,6 @@ use_flash_attention: true  # only used for llama-cpp backend
 
 # Run parameters
 num_gpus_to_use: null  # if null, will take all available gpus by default (see run_benchmark.sh)
-gpu_memory_utilization: 0.90
+gpu_memory_utilization: 0.80
 skip_to_next_model_if_error: true
 delete_model_cache_after_run: true

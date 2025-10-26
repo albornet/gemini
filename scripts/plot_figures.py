@@ -11,13 +11,13 @@ INPUT_DIR = "results/vllm-serve-async_guided"
 OUTPUT_DIR = os.path.join(INPUT_DIR, "pooled")
 OUTPUT_NAME = "pooled_results_qwen3_abiram"
 PLOTTED_X_ID = "vram"  # "vram", "nparams", "nbits"
-PLOTTED_Y_ID = "distance"  # "error", "distance"
+PLOTTED_Y_ID = "error"  # "error", "distance"
 CASES = [
     "single model",
-    "maj-pooling-3",
+    # "maj-pooling-3",
     "maj-pooling-5",
-    # "maj-pooling-10",
-    "all 5 models"
+    "maj-pooling-10",
+    "all 10 models"
 ]
 X_CONFIGS = {
     "vram": {"key": "VRAM param usage", "unit": "GB", "lim": [0.1, 50.0], "log": True},
@@ -26,7 +26,7 @@ X_CONFIGS = {
 }
 Y_CONFIGS = {
     "error": {"key": "Error Rate", "unit": "%", "lim": [0.0, 1.1], "log": False},
-    "distance": {"key": "Distance", "unit": "mRS unit", "lim": [0.1, 3.5], "log": True},
+    "distance": {"key": "Distance", "unit": "mRS unit", "lim": [0.1, 10.0], "log": True},
 }
 GROUP_COLORS = [
     "tab:blue", "tab:orange", "tab:green", "tab:red", "tab:purple",
@@ -131,7 +131,7 @@ def generate_pooled_metric_plots(
         axes_flat[i].tick_params(axis="x", labelsize=10)
         axes_flat[i].grid(True, linestyle="--", alpha=0.6)
         axes_flat[i].set_title(f"Prediction with {case_name}", fontsize=14, pad=10)
-        axes_flat[i].legend(loc="upper right", fontsize=12, fancybox=True, ncol=2)
+        axes_flat[i].legend(loc="upper right", fontsize=10, fancybox=True, ncol=2)
 
     # Save the pooled results figure
     fig.tight_layout(rect=[0, 0.03, 1, 0.95])
@@ -262,6 +262,6 @@ if __name__ == "__main__":
         output_dir=OUTPUT_DIR,
     )
 
-    # Identify statistical patterns using linear mixed-effects models
-    lme_results = fit_error_model_lme(pd.read_csv(output_csv_path))
-    print(lme_results.summary())
+    # # Identify statistical patterns using linear mixed-effects models
+    # lme_results = fit_error_model_lme(pd.read_csv(output_csv_path))
+    # print(lme_results.summary())

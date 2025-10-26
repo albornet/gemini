@@ -104,7 +104,7 @@ def _record_metrics(
         },
         f"Distance\n({label})": {
             "values": distance,
-            "unit": "mRS", "max_y": 10.0, "loc": (loc[0], 2), "color": "tab:orange",
+            "unit": "mRS", "max_y": 5.0, "loc": (loc[0], 2), "color": "tab:orange",
         },
     }
 

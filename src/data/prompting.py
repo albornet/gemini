@@ -40,7 +40,7 @@ def build_messages(
 def build_prompt(
     sample: dict[str, str],
     tokenizer: AutoTokenizer,
-    enable_thinking: bool = False,
+    enable_thinking: bool = True,
     add_generation_prompt: bool = True,
 ) -> dict[str, str]:
     """

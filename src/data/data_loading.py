@@ -67,7 +67,7 @@ def sample_small_balanced_dataset(
     """
     Select a small portion of the data that has more or less balanced classes
     """
-    print("Sampling a small, balanced dataset for debugging.")
+    print("Sampling a small, balanced dataset.")
     df_data = df_data.groupby("label", group_keys=False)
     df_data = df_data.apply(
         lambda x: x.sample(n=min(len(x), min_samples_per_class)), 

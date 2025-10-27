@@ -230,6 +230,8 @@ def get_tokenizer_name(
     model_info = api.model_info(model_id)
     card_data = model_info.card_data or {}
     tokenizer_name = card_data.get("base_model")
+    if isinstance(tokenizer_name, list):  # sometimes a list?
+        tokenizer_name = tokenizer_name[0]
 
     # Alternatively, inspect tags or siblings
     if not tokenizer_name:
